@@ -39,6 +39,7 @@ pub enum Screen {
     LoadGame,
     Options,
     InGame,
+    Skills,
 }
 
 #[derive(Debug)]
@@ -56,6 +57,7 @@ pub struct App {
     pub load_cursor: usize,
     // Active game session
     pub active_character: Option<SavedCharacter>,
+    pub skills_cursor: usize,
     pool: SqlitePool,
     pub events: EventHandler,
 }
@@ -72,6 +74,7 @@ impl App {
             saved_characters: Vec::new(),
             load_cursor: 0,
             active_character: None,
+            skills_cursor: 0,
             pool,
             events: EventHandler::new(),
         }
@@ -96,6 +99,7 @@ impl App {
                     AppEvent::Back       => self.go_back().await?,
                     AppEvent::Left       => self.handle_left(),
                     AppEvent::Right      => self.handle_right(),
+                    AppEvent::OpenSkills => { self.skills_cursor = 0; self.screen = Screen::Skills; }
                     AppEvent::Quit       => self.quit(),
                 },
             }
@@ -164,7 +168,15 @@ impl App {
                 _ => {}
             },
 
-            _ => match key_event.code {
+            Screen::InGame => match key_event.code {
+                KeyCode::Char('s') => self.events.send(AppEvent::OpenSkills),
+                KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
+                _ => {}
+            },
+
+            Screen::Skills => match key_event.code {
+                KeyCode::Up   | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
+                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
                 KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
                 _ => {}
             },
@@ -178,6 +190,11 @@ impl App {
         match self.screen {
             Screen::MainMenu  => cycle_cursor(&mut self.selected, -1, MenuItem::ALL.len()),
             Screen::Options   => cycle_cursor(&mut self.options_cursor, -1, OPTIONS_COUNT),
+            Screen::Skills    => {
+                if let Some(ch) = &self.active_character {
+                    cycle_cursor(&mut self.skills_cursor, -1, ch.skills.len());
+                }
+            }
             Screen::LoadGame  => {
                 if !self.saved_characters.is_empty() {
                     cycle_cursor(&mut self.load_cursor, -1, self.saved_characters.len());
@@ -198,6 +215,11 @@ impl App {
         match self.screen {
             Screen::MainMenu  => cycle_cursor(&mut self.selected, 1, MenuItem::ALL.len()),
             Screen::Options   => cycle_cursor(&mut self.options_cursor, 1, OPTIONS_COUNT),
+            Screen::Skills    => {
+                if let Some(ch) = &self.active_character {
+                    cycle_cursor(&mut self.skills_cursor, 1, ch.skills.len());
+                }
+            }
             Screen::LoadGame  => {
                 if !self.saved_characters.is_empty() {
                     cycle_cursor(&mut self.load_cursor, 1, self.saved_characters.len());
@@ -288,8 +310,10 @@ impl App {
                     self.creation.step = self.creation.step.prev();
                 }
             }
+            Screen::Skills => {
+                self.screen = Screen::InGame;
+            }
             Screen::InGame => {
-                // Return to main menu; active character stays loaded
                 self.screen = Screen::MainMenu;
             }
             _ => self.screen = Screen::MainMenu,

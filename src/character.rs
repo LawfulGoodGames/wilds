@@ -1,3 +1,149 @@
+// ── XP / Level math ──────────────────────────────────────────────────────────
+
+pub const MAX_SKILL_LEVEL: u32 = 99;
+
+/// Total XP required to reach `level` (RuneScape formula).
+/// Level 1 = 0 XP, Level 2 = 83 XP, Level 99 = 13,034,431 XP.
+pub fn xp_for_level(level: u32) -> u32 {
+    if level <= 1 {
+        return 0;
+    }
+    let mut points: f64 = 0.0;
+    for i in 1..(level as usize) {
+        points += f64::floor(i as f64 + 300.0 * f64::powf(2.0, i as f64 / 7.0));
+    }
+    f64::floor(points / 4.0) as u32
+}
+
+/// Current level for a given amount of XP (1–99).
+pub fn level_from_xp(xp: i32) -> u32 {
+    for lvl in (1..=MAX_SKILL_LEVEL).rev() {
+        if xp as u32 >= xp_for_level(lvl) {
+            return lvl;
+        }
+    }
+    1
+}
+
+/// XP still needed to reach the next level.
+pub fn xp_to_next_level(xp: i32) -> u32 {
+    let current = level_from_xp(xp);
+    if current >= MAX_SKILL_LEVEL {
+        return 0;
+    }
+    xp_for_level(current + 1).saturating_sub(xp as u32)
+}
+
+/// Progress fraction (0.0–1.0) through the current level.
+pub fn level_progress_pct(xp: i32) -> f64 {
+    let current = level_from_xp(xp);
+    if current >= MAX_SKILL_LEVEL {
+        return 1.0;
+    }
+    let start = xp_for_level(current) as f64;
+    let end   = xp_for_level(current + 1) as f64;
+    ((xp as f64 - start) / (end - start)).clamp(0.0, 1.0)
+}
+
+// ── Skills ────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SkillKind {
+    Cooking,
+    Blacksmithing,
+    Mining,
+    Woodcutting,
+    Fishing,
+    Herbalism,
+    Farming,
+    Crafting,
+    Enchanting,
+    Thieving,
+    Prayer,
+    Runecrafting,
+}
+
+impl SkillKind {
+    pub const ALL: [SkillKind; 12] = [
+        SkillKind::Cooking,
+        SkillKind::Blacksmithing,
+        SkillKind::Mining,
+        SkillKind::Woodcutting,
+        SkillKind::Fishing,
+        SkillKind::Herbalism,
+        SkillKind::Farming,
+        SkillKind::Crafting,
+        SkillKind::Enchanting,
+        SkillKind::Thieving,
+        SkillKind::Prayer,
+        SkillKind::Runecrafting,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            SkillKind::Cooking       => "Cooking",
+            SkillKind::Blacksmithing => "Blacksmithing",
+            SkillKind::Mining        => "Mining",
+            SkillKind::Woodcutting   => "Woodcutting",
+            SkillKind::Fishing       => "Fishing",
+            SkillKind::Herbalism     => "Herbalism",
+            SkillKind::Farming       => "Farming",
+            SkillKind::Crafting      => "Crafting",
+            SkillKind::Enchanting    => "Enchanting",
+            SkillKind::Thieving      => "Thieving",
+            SkillKind::Prayer        => "Prayer",
+            SkillKind::Runecrafting  => "Runecrafting",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            SkillKind::Cooking       => "Prepare food that restores HP and grants buffs.",
+            SkillKind::Blacksmithing => "Forge weapons and armor from raw ore.",
+            SkillKind::Mining        => "Extract ore, gems, and stone from the earth.",
+            SkillKind::Woodcutting   => "Fell trees and gather wood for crafting.",
+            SkillKind::Fishing       => "Catch fish from rivers, lakes, and seas.",
+            SkillKind::Herbalism     => "Gather herbs and brew potions.",
+            SkillKind::Farming       => "Grow crops and tend livestock.",
+            SkillKind::Crafting      => "Create items from leather, cloth, and bone.",
+            SkillKind::Enchanting    => "Imbue items with magical properties.",
+            SkillKind::Thieving      => "Pick pockets, crack locks, and move unseen.",
+            SkillKind::Prayer        => "Channel divine favour for blessings.",
+            SkillKind::Runecrafting  => "Craft runes used in spellcasting.",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<SkillKind> {
+        match s {
+            "Cooking"       => Some(SkillKind::Cooking),
+            "Blacksmithing" => Some(SkillKind::Blacksmithing),
+            "Mining"        => Some(SkillKind::Mining),
+            "Woodcutting"   => Some(SkillKind::Woodcutting),
+            "Fishing"       => Some(SkillKind::Fishing),
+            "Herbalism"     => Some(SkillKind::Herbalism),
+            "Farming"       => Some(SkillKind::Farming),
+            "Crafting"      => Some(SkillKind::Crafting),
+            "Enchanting"    => Some(SkillKind::Enchanting),
+            "Thieving"      => Some(SkillKind::Thieving),
+            "Prayer"        => Some(SkillKind::Prayer),
+            "Runecrafting"  => Some(SkillKind::Runecrafting),
+            _               => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SkillData {
+    pub kind: SkillKind,
+    pub xp:   i32,
+}
+
+impl SkillData {
+    pub fn level(&self) -> u32    { level_from_xp(self.xp) }
+    pub fn xp_to_next(&self) -> u32 { xp_to_next_level(self.xp) }
+    pub fn progress(&self) -> f64 { level_progress_pct(self.xp) }
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 pub const STAT_LABELS: [&str; 6] = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
@@ -354,6 +500,8 @@ pub struct SavedCharacter {
     pub int_stat: i32,
     pub wis_stat: i32,
     pub cha_stat: i32,
+    /// All 12 skills in `SkillKind::ALL` order. Populated after DB load.
+    pub skills:   Vec<SkillData>,
 }
 
 // ── CharacterCreation state ───────────────────────────────────────────────────

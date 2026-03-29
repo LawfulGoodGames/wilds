@@ -43,6 +43,7 @@ impl Widget for &App {
             Screen::CharacterCreation => render_character_creation(self, area, buf),
             Screen::Options          => render_options(self, area, buf),
             Screen::LoadGame         => render_load_game(self, area, buf),
+            Screen::Skills           => render_skills(self, area, buf),
             Screen::InGame           => render_in_game(self, area, buf),
         }
     }
@@ -571,7 +572,7 @@ fn render_in_game(app: &App, area: Rect, buf: &mut Buffer) {
     let status = vec![
         Line::from(vec![
             Span::styled(format!("  {} ", ch.name), Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("{}  {}  ", ch.race, ch.class), dim_style()),
+            Span::styled(format!("{}  {}  ", ch.race, ch.class), normal_style()),
             Span::styled(format!("Lv.{}  ", ch.level), Style::default().fg(Color::Cyan)),
             Span::styled(format!("HP {}/{}  ", ch.hp, ch.max_hp), Style::default().fg(Color::Red)),
             Span::styled(format!("XP {}  ", ch.xp), Style::default().fg(Color::Cyan)),
@@ -607,7 +608,119 @@ fn render_in_game(app: &App, area: Rect, buf: &mut Buffer) {
         .alignment(Alignment::Center)
         .render(chunks[1], buf);
 
-    hint_bar("Esc  main menu", chunks[2], buf);
+    hint_bar("s  skills    Esc  main menu", chunks[2], buf);
+}
+
+// ── Skills ────────────────────────────────────────────────────────────────────
+
+fn render_skills(app: &App, area: Rect, buf: &mut Buffer) {
+    let Some(ch) = &app.active_character else {
+        render_placeholder("Skills", "No active character.", area, buf);
+        return;
+    };
+
+    let outer = Block::bordered()
+        .title(" Skills ")
+        .title_alignment(Alignment::Center)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(GOLD));
+    let inner = outer.inner(area);
+    outer.render(area, buf);
+
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
+
+    let panels = Layout::horizontal([
+        Constraint::Percentage(38),
+        Constraint::Percentage(62),
+    ]).split(chunks[0]);
+
+    // Left: skill list
+    let list_lines: Vec<Line> = ch.skills.iter().enumerate().map(|(i, skill)| {
+        let level = skill.level();
+        let level_color = match level {
+            99         => GOLD,
+            71..=98    => Color::Green,
+            31..=70    => Color::Cyan,
+            _          => TEXT,
+        };
+        if i == app.skills_cursor {
+            Line::from(Span::styled(
+                format!("▶ {:<15} Lv.{:>2}", skill.kind.name(), level),
+                selected_style(),
+            ))
+        } else {
+            Line::from(vec![
+                Span::styled(format!("  {:<15} ", skill.kind.name()), normal_style()),
+                Span::styled(format!("Lv.{:>2}", level), Style::default().fg(level_color)),
+            ])
+        }
+    }).collect();
+
+    Paragraph::new(list_lines)
+        .block(Block::bordered().title(" Skill ").border_type(BorderType::Rounded).style(dim_style()))
+        .render(panels[0], buf);
+
+    // Right: detail for highlighted skill
+    let skill = &ch.skills[app.skills_cursor];
+    let level = skill.level();
+    let detail_width = (panels[1].width as usize).saturating_sub(6); // inner width for bar
+
+    let mut detail = vec![
+        Line::from(Span::styled(skill.kind.name(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+        Line::from(Span::styled(skill.kind.description(), dim_style())),
+        Line::from(""),
+    ];
+
+    if level >= 99 {
+        detail.push(Line::from(Span::styled(
+            "MAX LEVEL",
+            Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+        )));
+    } else {
+        let bar_width = detail_width.min(30);
+        let bar = skill_progress_bar(skill.progress(), bar_width);
+        detail.extend([
+            Line::from(vec![
+                Span::styled("Level     ", dim_style()),
+                Span::styled(level.to_string(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(vec![
+                Span::styled("XP        ", dim_style()),
+                Span::styled(format_xp(skill.xp), normal_style()),
+            ]),
+            Line::from(vec![
+                Span::styled("Next lvl  ", dim_style()),
+                Span::styled(format!("+{} XP", format_xp(skill.xp_to_next() as i32)), Style::default().fg(Color::Cyan)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(bar, Style::default().fg(Color::Cyan))),
+        ]);
+    }
+
+    Paragraph::new(detail)
+        .block(Block::bordered().title(" Detail ").border_type(BorderType::Rounded).style(dim_style()))
+        .wrap(ratatui::widgets::Wrap { trim: false })
+        .render(panels[1], buf);
+
+    hint_bar("↑ ↓ / j k  navigate    Esc  back to game", chunks[1], buf);
+}
+
+fn skill_progress_bar(pct: f64, width: usize) -> String {
+    let filled = (pct * width as f64).round() as usize;
+    let empty  = width.saturating_sub(filled);
+    format!("[{}{}] {:>3}%", "█".repeat(filled), "░".repeat(empty), (pct * 100.0) as u32)
+}
+
+fn format_xp(n: i32) -> String {
+    // Formats numbers with thousands separators: 1_234_567 → "1,234,567"
+    let s = n.to_string();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    for (i, ch) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 { out.push(','); }
+        out.push(ch);
+    }
+    out.chars().rev().collect()
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────

@@ -35,6 +35,7 @@ pub enum AppEvent {
     Back,
     Left,
     Right,
+    OpenSkills,
     Quit,
 }
 

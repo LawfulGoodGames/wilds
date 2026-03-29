@@ -1,6 +1,6 @@
-use crate::character::{CharacterCreation, SavedCharacter};
-use sqlx::{Row, sqlite::{SqliteConnectOptions, SqlitePoolOptions}};
-use std::str::FromStr;
+use crate::character::{CharacterCreation, SavedCharacter, SkillData, SkillKind};
+use sqlx::{Row, sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow}};
+use std::{collections::HashMap, str::FromStr};
 
 pub async fn init() -> color_eyre::Result<sqlx::SqlitePool> {
     let opts = SqliteConnectOptions::from_str("sqlite:wilds.db")?.create_if_missing(true);
@@ -8,6 +8,8 @@ pub async fn init() -> color_eyre::Result<sqlx::SqlitePool> {
     sqlx::migrate!("./migrations").run(&pool).await?;
     Ok(pool)
 }
+
+// ── Character save/load ───────────────────────────────────────────────────────
 
 pub async fn save_character(
     pool: &sqlx::SqlitePool,
@@ -22,17 +24,31 @@ pub async fn save_character(
     .bind(&creation.name)
     .bind(creation.selected_race().name())
     .bind(creation.selected_class().name())
-    .bind(s.strength    as i64)
-    .bind(s.dexterity   as i64)
+    .bind(s.strength     as i64)
+    .bind(s.dexterity    as i64)
     .bind(s.constitution as i64)
     .bind(s.intelligence as i64)
-    .bind(s.wisdom      as i64)
-    .bind(s.charisma    as i64)
+    .bind(s.wisdom       as i64)
+    .bind(s.charisma     as i64)
     .bind(creation.selected_gear().name())
     .execute(pool)
     .await?;
 
-    Ok(result.last_insert_rowid())
+    let id = result.last_insert_rowid();
+
+    // Seed all 12 skills at XP = 0
+    for skill in SkillKind::ALL {
+        sqlx::query(
+            "INSERT OR IGNORE INTO character_skills (character_id, skill_name, xp)
+             VALUES (?1, ?2, 0)",
+        )
+        .bind(id)
+        .bind(skill.name())
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(id)
 }
 
 pub async fn load_character_by_id(
@@ -48,7 +64,9 @@ pub async fn load_character_by_id(
     .fetch_one(pool)
     .await?;
 
-    Ok(row_to_character(&row))
+    let mut ch = row_to_character(&row);
+    ch.skills = load_skills_for_character(pool, id).await?;
+    Ok(ch)
 }
 
 pub async fn load_characters(
@@ -62,10 +80,63 @@ pub async fn load_characters(
     .fetch_all(pool)
     .await?;
 
-    Ok(rows.iter().map(row_to_character).collect())
+    let mut chars = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let mut ch = row_to_character(row);
+        ch.skills = load_skills_for_character(pool, ch.id).await?;
+        chars.push(ch);
+    }
+    Ok(chars)
 }
 
-fn row_to_character(row: &sqlx::sqlite::SqliteRow) -> SavedCharacter {
+// ── Skill XP update ───────────────────────────────────────────────────────────
+
+pub async fn update_skill_xp(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    skill: SkillKind,
+    new_xp: i32,
+) -> color_eyre::Result<()> {
+    sqlx::query(
+        "UPDATE character_skills SET xp = ?1
+         WHERE character_id = ?2 AND skill_name = ?3",
+    )
+    .bind(new_xp as i64)
+    .bind(character_id)
+    .bind(skill.name())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+async fn load_skills_for_character(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<Vec<SkillData>> {
+    let rows = sqlx::query(
+        "SELECT skill_name, xp FROM character_skills WHERE character_id = ?1",
+    )
+    .bind(character_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut map: HashMap<String, i32> = rows
+        .iter()
+        .map(|r| (r.get::<String, _>("skill_name"), r.get::<i64, _>("xp") as i32))
+        .collect();
+
+    Ok(SkillKind::ALL
+        .iter()
+        .map(|&kind| SkillData {
+            kind,
+            xp: map.remove(kind.name()).unwrap_or(0),
+        })
+        .collect())
+}
+
+fn row_to_character(row: &SqliteRow) -> SavedCharacter {
     SavedCharacter {
         id:       row.get("id"),
         name:     row.get("name"),
@@ -83,5 +154,6 @@ fn row_to_character(row: &sqlx::sqlite::SqliteRow) -> SavedCharacter {
         int_stat: row.get::<i64, _>("int_stat") as i32,
         wis_stat: row.get::<i64, _>("wis_stat") as i32,
         cha_stat: row.get::<i64, _>("cha_stat") as i32,
+        skills:   Vec::new(), // populated by callers via load_skills_for_character
     }
 }
