@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::app::{App, MenuItem, Screen};
 use crate::character::{Class, CreationStep, GearPackage, Race, STAT_FULL, STAT_LABELS};
+use crate::combat::{AttackKind, Turn};
 
 const TITLE: &str = r"
  __        _____ _     ____  ____
@@ -20,7 +21,7 @@ const TITLE: &str = r"
 // ── Palette ───────────────────────────────────────────────────────────────────
 
 const GOLD:      Color = Color::Yellow;
-const DIM:       Color = Color::DarkGray;
+const DIM:       Color = Color::Gray;
 const TEXT:      Color = Color::White;
 const HIGHLIGHT: Color = Color::Black;
 
@@ -45,6 +46,7 @@ impl Widget for &App {
             Screen::LoadGame         => render_load_game(self, area, buf),
             Screen::Skills           => render_skills(self, area, buf),
             Screen::InGame           => render_in_game(self, area, buf),
+            Screen::Combat           => render_combat(self, area, buf),
         }
     }
 }
@@ -608,7 +610,131 @@ fn render_in_game(app: &App, area: Rect, buf: &mut Buffer) {
         .alignment(Alignment::Center)
         .render(chunks[1], buf);
 
-    hint_bar("s  skills    Esc  main menu", chunks[2], buf);
+    hint_bar("f  fight test encounter    s  skills    Esc  main menu", chunks[2], buf);
+}
+
+// ── Combat ────────────────────────────────────────────────────────────────────
+
+fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
+    let Some(combat) = &app.combat else {
+        render_placeholder("Combat", "No active combat.", area, buf);
+        return;
+    };
+
+    let outer = Block::bordered()
+        .title(" Combat ")
+        .title_alignment(Alignment::Center)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(GOLD));
+    let inner = outer.inner(area);
+    outer.render(area, buf);
+
+    let chunks = Layout::vertical([
+        Constraint::Length(6),
+        Constraint::Min(1),
+        Constraint::Length(2),
+    ])
+    .split(inner);
+
+    let header = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(chunks[0]);
+    let player_turn = if combat.turn == Turn::Player { "Player turn" } else { "Enemy turn" };
+
+    let player_lines = vec![
+        Line::from(Span::styled("You", Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            hp_bar("HP", combat.player_hp, combat.player_max_hp, 24),
+            Style::default().fg(Color::Red),
+        )),
+        Line::from(Span::styled(player_turn, dim_style())),
+    ];
+    Paragraph::new(player_lines)
+        .block(Block::bordered().title(" Player ").border_type(BorderType::Rounded).style(dim_style()))
+        .render(header[0], buf);
+
+    let enemy_lines = vec![
+        Line::from(Span::styled(
+            &combat.enemy.name,
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            hp_bar("HP", combat.enemy.hp, combat.enemy.max_hp, 24),
+            Style::default().fg(Color::Red),
+        )),
+        Line::from(Span::styled(
+            format!("Armor Class: {}", combat.enemy.armor_class),
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from(Span::styled(
+            format!("Reward: {} XP, {} Gold", combat.enemy.reward_xp, combat.enemy.reward_gold),
+            dim_style(),
+        )),
+    ];
+    Paragraph::new(enemy_lines)
+        .block(Block::bordered().title(" Enemy ").border_type(BorderType::Rounded).style(dim_style()))
+        .render(header[1], buf);
+
+    let (options, selected_idx) = combat.selected_options();
+    let selected_label = combat.selected_option_name();
+    let mode_tabs = vec![
+        tab_chip("1:Melee", combat.active_attack_kind == AttackKind::Melee),
+        Span::raw(" "),
+        tab_chip("2:Ranged", combat.active_attack_kind == AttackKind::Ranged),
+        Span::raw(" "),
+        tab_chip("3:Spell", combat.active_attack_kind == AttackKind::Spell),
+    ];
+
+    let mut selection_lines = vec![
+        Line::from(mode_tabs),
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("Selected {}: {}", combat.active_attack_kind.label(), selected_label),
+            Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+        )),
+    ];
+    selection_lines.extend(options.iter().enumerate().map(|(idx, option)| {
+        if idx == selected_idx {
+            Line::from(Span::styled(format!("▶ {}", option.name), selected_style()))
+        } else {
+            Line::from(Span::styled(format!("  {}", option.name), normal_style()))
+        }
+    }));
+
+    let log_lines: Vec<Line> = combat
+        .log
+        .iter()
+        .rev()
+        .take(5)
+        .rev()
+        .map(|entry| Line::from(Span::styled(format!("• {entry}"), normal_style())))
+        .collect();
+
+    let lower = Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)]).split(chunks[1]);
+    Paragraph::new(selection_lines)
+        .block(Block::bordered().title(" Attack Select ").border_type(BorderType::Rounded).style(dim_style()))
+        .wrap(ratatui::widgets::Wrap { trim: true })
+        .render(lower[0], buf);
+
+    Paragraph::new(log_lines)
+        .block(Block::bordered().title(" Battle Log ").border_type(BorderType::Rounded).style(dim_style()))
+        .wrap(ratatui::widgets::Wrap { trim: true })
+        .render(lower[1], buf);
+
+    let footer = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(chunks[2]);
+    if let Some(summary) = &combat.last_roll_summary {
+        let roll_line = Line::from(vec![
+            Span::styled("Last Roll: ", dim_style()),
+            Span::styled(summary, Style::default().fg(Color::Cyan)),
+        ]);
+        Paragraph::new(roll_line)
+            .alignment(Alignment::Center)
+            .render(footer[0], buf);
+    }
+
+    hint_bar(
+        "1/2/3 select type    ↑ ↓ choose option    Enter/a attack    d defend    f flee",
+        footer[1],
+        buf,
+    );
 }
 
 // ── Skills ────────────────────────────────────────────────────────────────────
@@ -743,6 +869,23 @@ fn hint_bar(text: &str, area: Rect, buf: &mut Buffer) {
     Paragraph::new(text).style(dim_style()).alignment(Alignment::Center).render(area, buf);
 }
 
+fn hp_bar(label: &str, current: i32, max: i32, width: usize) -> String {
+    let max = max.max(1);
+    let current = current.clamp(0, max);
+    let ratio = current as f64 / max as f64;
+    let filled = (ratio * width as f64).round() as usize;
+    let empty = width.saturating_sub(filled);
+    format!("{label} [{}/{}] {}{}", current, max, "█".repeat(filled), "░".repeat(empty))
+}
+
 fn bool_label(v: bool) -> &'static str {
     if v { "On" } else { "Off" }
+}
+
+fn tab_chip(label: &str, selected: bool) -> Span<'_> {
+    if selected {
+        Span::styled(format!("[{label}]"), selected_style())
+    } else {
+        Span::styled(label.to_string(), dim_style())
+    }
 }

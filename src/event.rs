@@ -36,6 +36,15 @@ pub enum AppEvent {
     Left,
     Right,
     OpenSkills,
+    StartCombat,
+    CombatSelectMelee,
+    CombatSelectRanged,
+    CombatSelectSpell,
+    CombatCycleOptionUp,
+    CombatCycleOptionDown,
+    CombatUseSelected,
+    CombatDefend,
+    CombatFlee,
     Quit,
 }
 

@@ -128,6 +128,27 @@ pub async fn update_major_skill(
     Ok(())
 }
 
+pub async fn update_character_progress(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    hp: i32,
+    xp: i32,
+    gold: i32,
+) -> color_eyre::Result<()> {
+    sqlx::query(
+        "UPDATE characters
+         SET hp = ?1, xp = ?2, gold = ?3
+         WHERE id = ?4",
+    )
+    .bind(hp as i64)
+    .bind(xp as i64)
+    .bind(gold as i64)
+    .bind(character_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 async fn load_minor_skills(

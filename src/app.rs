@@ -1,4 +1,5 @@
 use crate::character::{CharacterCreation, Class, CreationStep, GearPackage, Race, SavedCharacter};
+use crate::combat::{AttackKind, CombatOutcome, CombatState, PlayerAction};
 use crate::event::{AppEvent, Event, EventHandler};
 use crate::settings::{UserSettings, OPTIONS_COUNT};
 use crate::db;
@@ -40,6 +41,7 @@ pub enum Screen {
     Options,
     InGame,
     Skills,
+    Combat,
 }
 
 #[derive(Debug)]
@@ -57,6 +59,7 @@ pub struct App {
     pub load_cursor: usize,
     // Active game session
     pub active_character: Option<SavedCharacter>,
+    pub combat: Option<CombatState>,
     pub minor_skills_cursor: usize,
     pool: SqlitePool,
     pub events: EventHandler,
@@ -74,6 +77,7 @@ impl App {
             saved_characters: Vec::new(),
             load_cursor: 0,
             active_character: None,
+            combat: None,
             minor_skills_cursor: 0,
             pool,
             events: EventHandler::new(),
@@ -100,6 +104,15 @@ impl App {
                     AppEvent::Left       => self.handle_left(),
                     AppEvent::Right      => self.handle_right(),
                     AppEvent::OpenSkills => { self.minor_skills_cursor = 0; self.screen = Screen::Skills; }
+                    AppEvent::StartCombat => self.start_combat(),
+                    AppEvent::CombatSelectMelee => self.set_combat_attack_kind(AttackKind::Melee),
+                    AppEvent::CombatSelectRanged => self.set_combat_attack_kind(AttackKind::Ranged),
+                    AppEvent::CombatSelectSpell => self.set_combat_attack_kind(AttackKind::Spell),
+                    AppEvent::CombatCycleOptionUp => self.cycle_combat_option(-1),
+                    AppEvent::CombatCycleOptionDown => self.cycle_combat_option(1),
+                    AppEvent::CombatUseSelected => self.handle_combat_action(PlayerAction::UseSelectedAttack).await?,
+                    AppEvent::CombatDefend => self.handle_combat_action(PlayerAction::Defend).await?,
+                    AppEvent::CombatFlee => self.handle_combat_action(PlayerAction::Flee).await?,
                     AppEvent::Quit       => self.quit(),
                 },
             }
@@ -170,7 +183,21 @@ impl App {
 
             Screen::InGame => match key_event.code {
                 KeyCode::Char('s') => self.events.send(AppEvent::OpenSkills),
+                KeyCode::Char('f') => self.events.send(AppEvent::StartCombat),
                 KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
+                _ => {}
+            },
+
+            Screen::Combat => match key_event.code {
+                KeyCode::Char('1') | KeyCode::Char('m') => self.events.send(AppEvent::CombatSelectMelee),
+                KeyCode::Char('2') | KeyCode::Char('r') => self.events.send(AppEvent::CombatSelectRanged),
+                KeyCode::Char('3') | KeyCode::Char('c') => self.events.send(AppEvent::CombatSelectSpell),
+                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::CombatCycleOptionUp),
+                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::CombatCycleOptionDown),
+                KeyCode::Enter | KeyCode::Char('a') => self.events.send(AppEvent::CombatUseSelected),
+                KeyCode::Char('d') => self.events.send(AppEvent::CombatDefend),
+                KeyCode::Char('f') => self.events.send(AppEvent::CombatFlee),
+                KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::CombatFlee),
                 _ => {}
             },
 
@@ -316,6 +343,10 @@ impl App {
             Screen::InGame => {
                 self.screen = Screen::MainMenu;
             }
+            Screen::Combat => {
+                self.combat = None;
+                self.screen = Screen::InGame;
+            }
             _ => self.screen = Screen::MainMenu,
         }
         Ok(())
@@ -361,6 +392,65 @@ impl App {
 
     pub fn quit(&mut self) {
         self.running = false;
+    }
+
+    fn start_combat(&mut self) {
+        let Some(character) = &self.active_character else {
+            return;
+        };
+        self.combat = Some(CombatState::from_character(character));
+        self.screen = Screen::Combat;
+    }
+
+    fn set_combat_attack_kind(&mut self, kind: AttackKind) {
+        if let Some(combat) = self.combat.as_mut() {
+            combat.set_attack_kind(kind);
+        }
+    }
+
+    fn cycle_combat_option(&mut self, dir: i32) {
+        if let Some(combat) = self.combat.as_mut() {
+            combat.cycle_selected_option(dir);
+        }
+    }
+
+    async fn handle_combat_action(&mut self, action: PlayerAction) -> color_eyre::Result<()> {
+        let Some(character_snapshot) = self.active_character.clone() else {
+            return Ok(());
+        };
+        let Some(combat) = self.combat.as_mut() else {
+            return Ok(());
+        };
+
+        let outcome = combat.resolve_player_action(action, &character_snapshot);
+        if !matches!(outcome, CombatOutcome::Ongoing) {
+            self.finish_combat(outcome).await?;
+        }
+        Ok(())
+    }
+
+    async fn finish_combat(&mut self, outcome: CombatOutcome) -> color_eyre::Result<()> {
+        let Some(mut character) = self.active_character.clone() else {
+            self.combat = None;
+            self.screen = Screen::InGame;
+            return Ok(());
+        };
+        let player_hp = self.combat.as_ref().map(|c| c.player_hp).unwrap_or(character.hp);
+
+        character.hp = player_hp.clamp(0, character.max_hp);
+
+        if let CombatOutcome::Won { xp, gold } = outcome {
+            character.xp += xp.max(0);
+            character.gold += gold.max(0);
+        }
+
+        self.active_character = Some(character.clone());
+        db::update_character_progress(&self.pool, character.id, character.hp, character.xp, character.gold)
+            .await?;
+
+        self.combat = None;
+        self.screen = Screen::InGame;
+        Ok(())
     }
 }
 

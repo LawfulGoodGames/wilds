@@ -1,5 +1,6 @@
 pub mod app;
 pub mod character;
+pub mod combat;
 pub mod db;
 pub mod event;
 pub mod settings;
