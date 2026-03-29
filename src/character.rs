@@ -458,15 +458,6 @@ impl GearPackage {
         }
     }
 
-    pub fn items(self) -> &'static str {
-        match self {
-            GearPackage::Melee   => "Iron Sword, Wooden Shield, Leather Armor",
-            GearPackage::Ranged  => "Hunting Bow, 20 Arrows, Leather Cloak",
-            GearPackage::Arcane  => "Oak Staff, Spellbook, Mana Potion x3",
-            GearPackage::Stealth => "Twin Daggers, Lockpicks, Shadow Cloak",
-        }
-    }
-
     pub fn description(self) -> &'static str {
         match self {
             GearPackage::Melee   => "Stand your ground and fight face-to-face.",

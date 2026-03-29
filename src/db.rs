@@ -1,7 +1,7 @@
 use crate::character::{
     CharacterCreation, MajorSkill, MajorSkillData, MinorSkill, MinorSkillData, SavedCharacter,
 };
-use crate::inventory::InventoryItem;
+use crate::inventory::{gear_package_items, Equipment, EquipSlot, InventoryItem};
 use sqlx::{Row, sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow}};
 use std::{collections::HashMap, str::FromStr};
 
@@ -52,6 +52,7 @@ pub async fn save_character(
     }
 
     seed_starting_inventory(pool, id).await?;
+    seed_starting_gear(pool, id, creation.selected_gear().name()).await?;
 
     Ok(id)
 }
@@ -228,6 +229,92 @@ pub async fn decrement_item(
     )
     .bind(character_id)
     .bind(item_type)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ── Equipment ─────────────────────────────────────────────────────────────────
+
+pub async fn seed_starting_gear(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    gear_name: &str,
+) -> color_eyre::Result<()> {
+    for (slot, item_type) in gear_package_items(gear_name) {
+        sqlx::query(
+            "INSERT OR IGNORE INTO equipment (character_id, slot, item_type)
+             VALUES (?1, ?2, ?3)",
+        )
+        .bind(character_id)
+        .bind(*slot)
+        .bind(*item_type)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
+pub async fn load_equipment(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<Equipment> {
+    let rows = sqlx::query(
+        "SELECT slot, item_type FROM equipment WHERE character_id = ?1",
+    )
+    .bind(character_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut eq = Equipment::default();
+    for row in rows {
+        let slot: String    = row.get("slot");
+        let item: String    = row.get("item_type");
+        match slot.as_str() {
+            "weapon" => eq.weapon = Some(item),
+            "shield" => eq.shield = Some(item),
+            "head"   => eq.head   = Some(item),
+            "neck"   => eq.neck   = Some(item),
+            "chest"  => eq.chest  = Some(item),
+            "cape"   => eq.cape   = Some(item),
+            "hands"  => eq.hands  = Some(item),
+            "ring"   => eq.ring   = Some(item),
+            "legs"   => eq.legs   = Some(item),
+            "feet"   => eq.feet   = Some(item),
+            _ => {}
+        }
+    }
+    Ok(eq)
+}
+
+pub async fn equip_item(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    slot: EquipSlot,
+    item_type: &str,
+) -> color_eyre::Result<()> {
+    sqlx::query(
+        "INSERT INTO equipment (character_id, slot, item_type) VALUES (?1, ?2, ?3)
+         ON CONFLICT(character_id, slot) DO UPDATE SET item_type = excluded.item_type",
+    )
+    .bind(character_id)
+    .bind(slot.db_key())
+    .bind(item_type)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn unequip_item(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    slot: EquipSlot,
+) -> color_eyre::Result<()> {
+    sqlx::query(
+        "DELETE FROM equipment WHERE character_id = ?1 AND slot = ?2",
+    )
+    .bind(character_id)
+    .bind(slot.db_key())
     .execute(pool)
     .await?;
     Ok(())

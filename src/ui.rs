@@ -9,7 +9,7 @@ use ratatui::{
 use crate::app::{App, MenuItem, Screen};
 use crate::character::{Class, CreationStep, GearPackage, Race, STAT_FULL, STAT_LABELS};
 use crate::combat::{AttackKind, Turn};
-use crate::inventory::ItemKind;
+use crate::inventory::{find_def, gear_package_items, EquipSlot, ItemKind};
 
 const TITLE: &str = r"
  __        _____ _     ____  ____
@@ -47,6 +47,7 @@ impl Widget for &App {
             Screen::LoadGame         => render_load_game(self, area, buf),
             Screen::Skills           => render_skills(self, area, buf),
             Screen::Inventory        => render_inventory(self, area, buf),
+            Screen::Equipment        => render_equipment(self, area, buf),
             Screen::InGame           => render_in_game(self, area, buf),
             Screen::Combat           => render_combat(self, area, buf),
         }
@@ -337,14 +338,36 @@ fn render_creation_gear(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) 
         .render(chunks[0], buf);
 
     let pkg = GearPackage::ALL[app.creation.gear_cursor];
-    let detail = vec![
+    let mut detail = vec![
         Line::from(Span::styled(pkg.name(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
         Line::from(""),
         Line::from(Span::styled(pkg.description(), normal_style())),
         Line::from(""),
-        Line::from(Span::styled("Items:", dim_style())),
-        Line::from(Span::styled(pkg.items(), Style::default().fg(Color::Cyan))),
+        Line::from(Span::styled("Will be equipped:", dim_style())),
+        Line::from(""),
     ];
+    for (slot_key, item_type) in gear_package_items(pkg.name()) {
+        if let Some(def) = find_def(item_type) {
+            let slot_label = EquipSlot::ALL
+                .iter()
+                .find(|s| s.db_key() == *slot_key)
+                .map(|s| s.label())
+                .unwrap_or(slot_key);
+            let extra = if !def.attacks.is_empty() {
+                let names: Vec<&str> = def.attacks.iter().map(|a| a.name).collect();
+                format!("  → {}", names.join(", "))
+            } else if def.defense_bonus > 0 {
+                format!("  +{} def", def.defense_bonus)
+            } else {
+                String::new()
+            };
+            detail.push(Line::from(vec![
+                Span::styled(format!("  {:<8}", slot_label), dim_style()),
+                Span::styled(def.name, Style::default().fg(Color::Cyan)),
+                Span::styled(extra, Style::default().fg(Color::Green)),
+            ]));
+        }
+    }
     Paragraph::new(detail)
         .block(Block::bordered().title(" Contents ").border_type(BorderType::Rounded).style(dim_style()))
         .wrap(ratatui::widgets::Wrap { trim: true })
@@ -401,7 +424,14 @@ fn render_creation_confirm(app: &App, content: Rect, hint: Rect, buf: &mut Buffe
         ]),
         Line::from(vec![
             Span::styled("           ", dim_style()),
-            Span::styled(gear.items(), Style::default().fg(Color::Cyan)),
+            Span::styled(
+                gear_package_items(gear.name())
+                    .iter()
+                    .filter_map(|(_, t)| find_def(t).map(|d| d.name))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                Style::default().fg(Color::Cyan),
+            ),
         ]),
     ];
 
@@ -612,7 +642,7 @@ fn render_in_game(app: &App, area: Rect, buf: &mut Buffer) {
         .alignment(Alignment::Center)
         .render(chunks[1], buf);
 
-    hint_bar("f  fight    i  inventory    s  skills    Esc  main menu", chunks[2], buf);
+    hint_bar("f  fight    i  inventory    e  equipment    s  skills    Esc  main menu", chunks[2], buf);
 }
 
 // ── Combat ────────────────────────────────────────────────────────────────────
@@ -648,6 +678,13 @@ fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
             hp_bar("HP", combat.player_hp, combat.player_max_hp, 24),
             Style::default().fg(Color::Red),
         )),
+        Line::from(vec![
+            Span::styled("Defense ", dim_style()),
+            Span::styled(
+                combat.player_defense.to_string(),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
+        ]),
         Line::from(Span::styled(player_turn, dim_style())),
     ];
     Paragraph::new(player_lines)
@@ -679,7 +716,7 @@ fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
                 Style::default().fg(if is_dead { Color::DarkGray } else { Color::Red }),
             ),
             Span::styled(
-                format!("  AC:{}", enemy.armor_class),
+                format!("  DEF:{}", enemy.defense),
                 if is_selected && !is_dead { Style::default().fg(Color::Yellow) } else { dim_style() },
             ),
         ]));
@@ -691,28 +728,38 @@ fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
     let (options, selected_idx) = combat.selected_options();
     let selected_label = combat.selected_option_name();
     let mode_tabs = vec![
-        tab_chip("1:Melee", combat.active_attack_kind == AttackKind::Melee),
+        tab_chip_avail("1:Melee",  combat.active_attack_kind == AttackKind::Melee,  !combat.melee_options.is_empty()),
         Span::raw(" "),
-        tab_chip("2:Ranged", combat.active_attack_kind == AttackKind::Ranged),
+        tab_chip_avail("2:Ranged", combat.active_attack_kind == AttackKind::Ranged, !combat.ranged_options.is_empty()),
         Span::raw(" "),
-        tab_chip("3:Spell", combat.active_attack_kind == AttackKind::Spell),
+        tab_chip_avail("3:Spell",  combat.active_attack_kind == AttackKind::Spell,  !combat.spell_options.is_empty()),
     ];
 
-    let mut selection_lines = vec![
-        Line::from(mode_tabs),
-        Line::from(""),
-        Line::from(Span::styled(
+    let mut selection_lines = vec![Line::from(mode_tabs), Line::from("")];
+    if options.is_empty() {
+        selection_lines.push(Line::from(Span::styled(
+            format!("No {} weapon equipped.", combat.active_attack_kind.label()),
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        selection_lines.push(Line::from(Span::styled(
             format!("Selected {}: {}", combat.active_attack_kind.label(), selected_label),
             Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
-        )),
-    ];
-    selection_lines.extend(options.iter().enumerate().map(|(idx, option)| {
-        if idx == selected_idx {
-            Line::from(Span::styled(format!("▶ {}", option.name), selected_style()))
-        } else {
-            Line::from(Span::styled(format!("  {}", option.name), normal_style()))
-        }
-    }));
+        )));
+        selection_lines.extend(options.iter().enumerate().map(|(idx, option)| {
+            let row = format!(
+                "{}  Hit +{}  Dmg {}",
+                option.name,
+                option.accuracy_bonus,
+                option.damage_range_label()
+            );
+            if idx == selected_idx {
+                Line::from(Span::styled(format!("▶ {}", row), selected_style()))
+            } else {
+                Line::from(Span::styled(format!("  {}", row), normal_style()))
+            }
+        }));
+    }
 
     let visible_start = combat.log.len().saturating_sub(5);
     let new_start = combat.log.len().saturating_sub(combat.new_log_entries);
@@ -735,7 +782,7 @@ fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
 
     let lower = Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)]).split(chunks[1]);
     Paragraph::new(selection_lines)
-        .block(Block::bordered().title(" Attack Select ").border_type(BorderType::Rounded).style(dim_style()))
+        .block(Block::bordered().title(" Actions ").border_type(BorderType::Rounded).style(dim_style()))
         .wrap(ratatui::widgets::Wrap { trim: true })
         .render(lower[0], buf);
 
@@ -771,7 +818,7 @@ fn render_skills(app: &App, area: Rect, buf: &mut Buffer) {
     };
 
     let outer = Block::bordered()
-        .title(" Minor Skills ")
+        .title(" Proficiencies ")
         .title_alignment(Alignment::Center)
         .border_type(BorderType::Rounded)
         .style(Style::default().fg(GOLD));
@@ -796,19 +843,19 @@ fn render_skills(app: &App, area: Rect, buf: &mut Buffer) {
         };
         if i == app.minor_skills_cursor {
             Line::from(Span::styled(
-                format!("▶ {:<15} Lv.{:>2}", skill.kind.name(), level),
+                format!("▶ {:<15} Rank {:>2}", skill.kind.name(), level),
                 selected_style(),
             ))
         } else {
             Line::from(vec![
                 Span::styled(format!("  {:<15} ", skill.kind.name()), normal_style()),
-                Span::styled(format!("Lv.{:>2}", level), Style::default().fg(level_color)),
+                Span::styled(format!("Rk.{:>2}", level), Style::default().fg(level_color)),
             ])
         }
     }).collect();
 
     Paragraph::new(list_lines)
-        .block(Block::bordered().title(" Skill ").border_type(BorderType::Rounded).style(dim_style()))
+        .block(Block::bordered().title(" Proficiency ").border_type(BorderType::Rounded).style(dim_style()))
         .render(panels[0], buf);
 
     // Right: detail for highlighted skill
@@ -833,15 +880,15 @@ fn render_skills(app: &App, area: Rect, buf: &mut Buffer) {
         let bar = skill_progress_bar(skill.progress(), bar_width);
         detail.extend([
             Line::from(vec![
-                Span::styled("Level     ", dim_style()),
+                Span::styled("Rank      ", dim_style()),
                 Span::styled(level.to_string(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(vec![
-                Span::styled("XP        ", dim_style()),
+                Span::styled("Training XP", dim_style()),
                 Span::styled(format_xp(skill.xp), normal_style()),
             ]),
             Line::from(vec![
-                Span::styled("Next lvl  ", dim_style()),
+                Span::styled("Next rank ", dim_style()),
                 Span::styled(format!("+{} XP", format_xp(skill.xp_to_next() as i32)), Style::default().fg(Color::Cyan)),
             ]),
             Line::from(""),
@@ -924,10 +971,38 @@ fn render_inventory(app: &App, area: Rect, buf: &mut Buffer) {
                 Line::from(Span::styled(def.description, normal_style())),
                 Line::from(""),
                 Line::from(Span::styled(
-                    format!("[{}]", def.kind.label()),
+                    format!("[{}]", def.combat_role_label()),
                     Style::default().fg(kind_color),
                 )),
             ];
+            if let Some(slot) = def.equip_slot {
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("Slot      ", dim_style()),
+                    Span::styled(slot.label(), normal_style()),
+                ]));
+            }
+            if def.defense_bonus > 0 {
+                lines.push(Line::from(vec![
+                    Span::styled("Armor     ", dim_style()),
+                    Span::styled(format!("+{}", def.defense_bonus), Style::default().fg(Color::Cyan)),
+                ]));
+            }
+            if !def.attacks.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled("Combat options", dim_style())));
+                for attack in def.attacks {
+                    lines.push(Line::from(Span::styled(
+                        format!(
+                            "• {}  Hit +{}  Dmg {}",
+                            attack.name,
+                            attack.accuracy_bonus,
+                            attack.damage_range_label()
+                        ),
+                        normal_style(),
+                    )));
+                }
+            }
             if def.heal_amount > 0 {
                 lines.push(Line::from(""));
                 lines.push(Line::from(Span::styled(
@@ -937,10 +1012,11 @@ fn render_inventory(app: &App, area: Rect, buf: &mut Buffer) {
             }
             if def.is_usable() {
                 lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled(
-                    "Enter / u  — use item",
-                    dim_style(),
-                )));
+                lines.push(Line::from(Span::styled("Enter / u  — use", dim_style())));
+            }
+            if def.is_equippable() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled("e  — equip", dim_style())));
             }
             lines
         }
@@ -958,7 +1034,133 @@ fn render_inventory(app: &App, area: Rect, buf: &mut Buffer) {
             .render(chunks[1], buf);
     }
 
-    hint_bar("↑ ↓ / j k  navigate    Enter / u  use    Esc  back", chunks[2], buf);
+    hint_bar("↑ ↓ / j k  navigate    Enter/u use    e equip    Esc back", chunks[2], buf);
+}
+
+// ── Equipment ─────────────────────────────────────────────────────────────────
+
+fn render_equipment(app: &App, area: Rect, buf: &mut Buffer) {
+    let outer = Block::bordered()
+        .title(" Equipment ")
+        .title_alignment(Alignment::Center)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(GOLD));
+    let inner = outer.inner(area);
+    outer.render(area, buf);
+
+    let chunks = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(1), // status message
+        Constraint::Length(2), // hint bar
+    ])
+    .split(inner);
+
+    let panels =
+        Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)]).split(chunks[0]);
+
+    let eq = &app.equipment;
+
+    // ── Left: slot list ───────────────────────────────────────────────────────
+    let slot_lines: Vec<Line> = EquipSlot::ALL
+        .iter()
+        .enumerate()
+        .map(|(i, &slot)| {
+            let item_name = eq
+                .get_slot(slot)
+                .and_then(|t| crate::inventory::find_def(t))
+                .map(|d| d.name)
+                .unwrap_or("(empty)");
+            let empty = item_name == "(empty)";
+            if i == app.equipment_cursor {
+                Line::from(vec![
+                    Span::styled(format!("▶ {:<8}", slot.label()), selected_style()),
+                    Span::styled(format!(" {}", item_name), selected_style()),
+                ])
+            } else if empty {
+                Line::from(vec![
+                    Span::styled(format!("  {:<8}", slot.label()), dim_style()),
+                    Span::styled(format!(" {}", item_name), Style::default().fg(Color::DarkGray)),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled(format!("  {:<8}", slot.label()), dim_style()),
+                    Span::styled(format!(" {}", item_name), normal_style()),
+                ])
+            }
+        })
+        .collect();
+
+    Paragraph::new(slot_lines)
+        .block(Block::bordered().title(" Slots ").border_type(BorderType::Rounded).style(dim_style()))
+        .render(panels[0], buf);
+
+    // ── Right: detail panel ───────────────────────────────────────────────────
+    let selected_slot = EquipSlot::ALL[app.equipment_cursor];
+    let detail_lines: Vec<Line> = match eq.get_slot(selected_slot).and_then(|t| crate::inventory::find_def(t)) {
+        None => vec![
+            Line::from(Span::styled(selected_slot.label(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+            Line::from(""),
+            Line::from(Span::styled("Nothing equipped.", dim_style())),
+        ],
+        Some(def) => {
+            let mut lines = vec![
+                Line::from(Span::styled(def.name, Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+                Line::from(""),
+                Line::from(Span::styled(def.description, normal_style())),
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("[{}]", def.combat_role_label()),
+                    Style::default().fg(Color::Cyan),
+                )),
+            ];
+            if !def.attacks.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled("Combat options", dim_style())));
+                for attack in def.attacks {
+                    lines.push(Line::from(Span::styled(
+                        format!(
+                            "• {}  Hit +{}  Dmg {}",
+                            attack.name,
+                            attack.accuracy_bonus,
+                            attack.damage_range_label()
+                        ),
+                        normal_style(),
+                    )));
+                }
+            }
+            if def.defense_bonus > 0 {
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::styled("Armor     ", dim_style()),
+                    Span::styled(format!("+{}", def.defense_bonus), Style::default().fg(Color::Cyan)),
+                ]));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled("Enter / u  — unequip", dim_style())));
+            lines
+        }
+    };
+
+    Paragraph::new(detail_lines)
+        .block(Block::bordered().title(" Details ").border_type(BorderType::Rounded).style(dim_style()))
+        .wrap(ratatui::widgets::Wrap { trim: false })
+        .render(panels[1], buf);
+
+    // ── Status message ────────────────────────────────────────────────────────
+    let status_style = Style::default().fg(match app.equipment_message {
+        Some(_) => Color::Green,
+        None => Color::Cyan,
+    });
+    let status_text = app
+        .equipment_message
+        .as_deref()
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Total armor rating: {}", app.equipment.total_armor_bonus()));
+    Paragraph::new(Span::styled(status_text, status_style))
+        .alignment(Alignment::Center)
+        .render(chunks[1], buf);
+
+    hint_bar("↑ ↓ / j k  navigate    Enter/u unequip    Esc back", chunks[2], buf);
 }
 
 fn skill_progress_bar(pct: f64, width: usize) -> String {
@@ -1011,10 +1213,12 @@ fn bool_label(v: bool) -> &'static str {
     if v { "On" } else { "Off" }
 }
 
-fn tab_chip(label: &str, selected: bool) -> Span<'_> {
-    if selected {
+fn tab_chip_avail(label: &str, active: bool, available: bool) -> Span<'_> {
+    if active {
         Span::styled(format!("[{label}]"), selected_style())
-    } else {
+    } else if available {
         Span::styled(label.to_string(), dim_style())
+    } else {
+        Span::styled(label.to_string(), Style::default().fg(Color::DarkGray))
     }
 }

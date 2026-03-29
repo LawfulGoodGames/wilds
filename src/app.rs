@@ -1,7 +1,7 @@
 use crate::character::{CharacterCreation, Class, CreationStep, GearPackage, Race, SavedCharacter};
 use crate::combat::{AttackKind, CombatOutcome, CombatState, PlayerAction};
 use crate::event::{AppEvent, Event, EventHandler};
-use crate::inventory::InventoryState;
+use crate::inventory::{find_def, Equipment, EquipSlot, InventoryState};
 use crate::settings::{UserSettings, OPTIONS_COUNT};
 use crate::db;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -43,6 +43,7 @@ pub enum Screen {
     InGame,
     Skills,
     Inventory,
+    Equipment,
     Combat,
 }
 
@@ -61,6 +62,9 @@ pub struct App {
     pub load_cursor: usize,
     // Active game session
     pub active_character: Option<SavedCharacter>,
+    pub equipment: Equipment,
+    pub equipment_cursor: usize,
+    pub equipment_message: Option<String>,
     pub combat: Option<CombatState>,
     pub minor_skills_cursor: usize,
     pub inventory: InventoryState,
@@ -80,6 +84,9 @@ impl App {
             saved_characters: Vec::new(),
             load_cursor: 0,
             active_character: None,
+            equipment: Equipment::default(),
+            equipment_cursor: 0,
+            equipment_message: None,
             combat: None,
             minor_skills_cursor: 0,
             inventory: InventoryState::default(),
@@ -118,8 +125,11 @@ impl App {
                     AppEvent::CombatUseSelected => self.handle_combat_action(PlayerAction::UseSelectedAttack).await?,
                     AppEvent::CombatDefend => self.handle_combat_action(PlayerAction::Defend).await?,
                     AppEvent::CombatFlee => self.handle_combat_action(PlayerAction::Flee).await?,
-                    AppEvent::OpenInventory => self.open_inventory().await?,
-                    AppEvent::InventoryUse  => self.use_inventory_item().await?,
+                    AppEvent::OpenInventory    => self.open_inventory().await?,
+                    AppEvent::InventoryUse     => self.use_inventory_item().await?,
+                    AppEvent::InventoryEquip   => self.equip_selected_item().await?,
+                    AppEvent::OpenEquipment    => self.open_equipment().await?,
+                    AppEvent::EquipmentUnequip => self.unequip_item().await?,
                     AppEvent::Quit       => self.quit(),
                 },
             }
@@ -191,6 +201,7 @@ impl App {
             Screen::InGame => match key_event.code {
                 KeyCode::Char('s') => self.events.send(AppEvent::OpenSkills),
                 KeyCode::Char('i') => self.events.send(AppEvent::OpenInventory),
+                KeyCode::Char('e') => self.events.send(AppEvent::OpenEquipment),
                 KeyCode::Char('f') => self.events.send(AppEvent::StartCombat),
                 KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
                 _ => {}
@@ -200,6 +211,15 @@ impl App {
                 KeyCode::Up   | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
                 KeyCode::Enter | KeyCode::Char('u') => self.events.send(AppEvent::InventoryUse),
+                KeyCode::Char('e') => self.events.send(AppEvent::InventoryEquip),
+                KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
+                _ => {}
+            },
+
+            Screen::Equipment => match key_event.code {
+                KeyCode::Up   | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
+                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
+                KeyCode::Enter | KeyCode::Char('u') => self.events.send(AppEvent::EquipmentUnequip),
                 KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
                 _ => {}
             },
@@ -239,7 +259,8 @@ impl App {
                     cycle_cursor(&mut self.minor_skills_cursor, -1, ch.minor_skills.len());
                 }
             }
-            Screen::Inventory => self.inventory.cursor_up(),
+            Screen::Inventory  => self.inventory.cursor_up(),
+            Screen::Equipment  => cycle_cursor(&mut self.equipment_cursor, -1, EquipSlot::ALL.len()),
             Screen::LoadGame  => {
                 if !self.saved_characters.is_empty() {
                     cycle_cursor(&mut self.load_cursor, -1, self.saved_characters.len());
@@ -265,7 +286,8 @@ impl App {
                     cycle_cursor(&mut self.minor_skills_cursor, 1, ch.minor_skills.len());
                 }
             }
-            Screen::Inventory => self.inventory.cursor_down(),
+            Screen::Inventory  => self.inventory.cursor_down(),
+            Screen::Equipment  => cycle_cursor(&mut self.equipment_cursor, 1, EquipSlot::ALL.len()),
             Screen::LoadGame  => {
                 if !self.saved_characters.is_empty() {
                     cycle_cursor(&mut self.load_cursor, 1, self.saved_characters.len());
@@ -319,11 +341,11 @@ impl App {
 
             Screen::CharacterCreation => {
                 if self.creation.step == CreationStep::Confirm {
-                    // Save to DB, then load the full record back so InGame
-                    // has a consistent SavedCharacter to work with.
                     let id = db::save_character(&self.pool, &self.creation).await?;
                     let character = db::load_character_by_id(&self.pool, id).await?;
+                    let equipment = db::load_equipment(&self.pool, id).await?;
                     self.active_character = Some(character);
+                    self.equipment = equipment;
                     self.screen = Screen::InGame;
                 } else {
                     self.creation.step = self.creation.step.next();
@@ -333,7 +355,9 @@ impl App {
             Screen::LoadGame => {
                 if !self.saved_characters.is_empty() {
                     let character = self.saved_characters[self.load_cursor].clone();
+                    let equipment = db::load_equipment(&self.pool, character.id).await?;
                     self.active_character = Some(character);
+                    self.equipment = equipment;
                     self.screen = Screen::InGame;
                 }
             }
@@ -356,7 +380,7 @@ impl App {
                     self.creation.step = self.creation.step.prev();
                 }
             }
-            Screen::Skills | Screen::Inventory => {
+            Screen::Skills | Screen::Inventory | Screen::Equipment => {
                 self.screen = Screen::InGame;
             }
             Screen::InGame => {
@@ -417,7 +441,7 @@ impl App {
         let Some(character) = &self.active_character else {
             return;
         };
-        self.combat = Some(CombatState::from_character(character));
+        self.combat = Some(CombatState::from_character_with_equipment(character, &self.equipment));
         self.screen = Screen::Combat;
     }
 
@@ -483,9 +507,11 @@ impl App {
     async fn open_inventory(&mut self) -> color_eyre::Result<()> {
         let Some(ch) = &self.active_character else { return Ok(()); };
         let items = db::load_inventory(&self.pool, ch.id).await?;
+        let equipment = db::load_equipment(&self.pool, ch.id).await?;
         self.inventory.items = items;
         self.inventory.cursor = 0;
         self.inventory.last_use_message = None;
+        self.equipment = equipment;
         self.screen = Screen::Inventory;
         Ok(())
     }
@@ -517,6 +543,61 @@ impl App {
         self.inventory.items = items;
         self.inventory.clamp_cursor();
         self.inventory.last_use_message = Some(message);
+        Ok(())
+    }
+
+    async fn equip_selected_item(&mut self) -> color_eyre::Result<()> {
+        let Some(item) = self.inventory.selected().cloned() else { return Ok(()); };
+        let Some(def) = item.def() else { return Ok(()); };
+        let Some(slot) = def.equip_slot else {
+            self.inventory.last_use_message = Some(format!("{} cannot be equipped.", def.name));
+            return Ok(());
+        };
+        let Some(ch) = &self.active_character else { return Ok(()); };
+        let character_id = ch.id;
+
+        // If something is already in this slot, return it to the bag first.
+        if let Some(current_type) = self.equipment.get_slot(slot).map(|s| s.to_string()) {
+            db::add_item(&self.pool, character_id, &current_type, 1).await?;
+        }
+
+        db::decrement_item(&self.pool, character_id, &item.item_type).await?;
+        db::equip_item(&self.pool, character_id, slot, &item.item_type).await?;
+
+        let items = db::load_inventory(&self.pool, character_id).await?;
+        self.inventory.items = items;
+        self.inventory.clamp_cursor();
+        self.equipment = db::load_equipment(&self.pool, character_id).await?;
+        self.inventory.last_use_message = Some(format!("Equipped {}.", def.name));
+        Ok(())
+    }
+
+    // ── Equipment screen ──────────────────────────────────────────────────────
+
+    async fn open_equipment(&mut self) -> color_eyre::Result<()> {
+        let Some(ch) = &self.active_character else { return Ok(()); };
+        self.equipment = db::load_equipment(&self.pool, ch.id).await?;
+        self.equipment_cursor = 0;
+        self.equipment_message = None;
+        self.screen = Screen::Equipment;
+        Ok(())
+    }
+
+    async fn unequip_item(&mut self) -> color_eyre::Result<()> {
+        let slot = EquipSlot::ALL[self.equipment_cursor];
+        let Some(item_type) = self.equipment.get_slot(slot).map(|s| s.to_string()) else {
+            self.equipment_message = Some("Nothing equipped in this slot.".to_string());
+            return Ok(());
+        };
+        let name = find_def(&item_type).map(|d| d.name).unwrap_or(&item_type).to_string();
+        let Some(ch) = &self.active_character else { return Ok(()); };
+        let character_id = ch.id;
+
+        db::unequip_item(&self.pool, character_id, slot).await?;
+        db::add_item(&self.pool, character_id, &item_type, 1).await?;
+
+        self.equipment = db::load_equipment(&self.pool, character_id).await?;
+        self.equipment_message = Some(format!("Unequipped {}.", name));
         Ok(())
     }
 }

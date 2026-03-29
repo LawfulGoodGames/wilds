@@ -48,6 +48,9 @@ pub enum AppEvent {
     CombatFlee,
     OpenInventory,
     InventoryUse,
+    InventoryEquip,
+    OpenEquipment,
+    EquipmentUnequip,
     Quit,
 }
 
