@@ -1,6 +1,6 @@
-// ── Attack option (shared with combat) ───────────────────────────────────────
+use crate::character::ResistanceProfile;
+use crate::world::VendorId;
 
-/// A single attack move granted by an equipped weapon.
 #[derive(Debug, Clone, Copy)]
 pub struct AttackOption {
     pub name: &'static str,
@@ -14,8 +14,6 @@ impl AttackOption {
         format!("{}-{}", self.min_damage, self.max_damage)
     }
 }
-
-// ── Weapon / equipment types ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WeaponKind {
@@ -56,14 +54,14 @@ impl EquipSlot {
         match self {
             Self::Weapon => "Weapon",
             Self::Shield => "Shield",
-            Self::Head   => "Head",
-            Self::Neck   => "Neck",
-            Self::Chest  => "Chest",
-            Self::Cape   => "Cape",
-            Self::Hands  => "Hands",
-            Self::Ring   => "Ring",
-            Self::Legs   => "Legs",
-            Self::Feet   => "Feet",
+            Self::Head => "Head",
+            Self::Neck => "Neck",
+            Self::Chest => "Chest",
+            Self::Cape => "Cape",
+            Self::Hands => "Hands",
+            Self::Ring => "Ring",
+            Self::Legs => "Legs",
+            Self::Feet => "Feet",
         }
     }
 
@@ -71,24 +69,23 @@ impl EquipSlot {
         match self {
             Self::Weapon => "weapon",
             Self::Shield => "shield",
-            Self::Head   => "head",
-            Self::Neck   => "neck",
-            Self::Chest  => "chest",
-            Self::Cape   => "cape",
-            Self::Hands  => "hands",
-            Self::Ring   => "ring",
-            Self::Legs   => "legs",
-            Self::Feet   => "feet",
+            Self::Head => "head",
+            Self::Neck => "neck",
+            Self::Chest => "chest",
+            Self::Cape => "cape",
+            Self::Hands => "hands",
+            Self::Ring => "ring",
+            Self::Legs => "legs",
+            Self::Feet => "feet",
         }
     }
 }
-
-// ── Item kind ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemKind {
     Consumable,
     Equipment,
+    Loot,
     Quest,
 }
 
@@ -96,35 +93,106 @@ impl ItemKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Consumable => "Consumable",
-            Self::Equipment  => "Equipment",
-            Self::Quest      => "Quest Item",
+            Self::Equipment => "Equipment",
+            Self::Loot => "Loot",
+            Self::Quest => "Quest Item",
         }
     }
 }
 
-// ── Item catalog definition ───────────────────────────────────────────────────
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemRarity {
+    Common,
+    Uncommon,
+    Rare,
+    Epic,
+}
 
+impl ItemRarity {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Common => "Common",
+            Self::Uncommon => "Uncommon",
+            Self::Rare => "Rare",
+            Self::Epic => "Epic",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemEffect {
+    HealHp(i32),
+    RestoreMana(i32),
+    RestoreStamina(i32),
+    CurePoison,
+    ApplyGuard(i32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EquipmentStats {
+    pub armor: i32,
+    pub attack_bonus: i32,
+    pub spell_power: i32,
+    pub crit_bonus: i32,
+    pub initiative_bonus: i32,
+    pub resistances: ResistanceProfile,
+}
+
+const ZERO_RESISTANCES: ResistanceProfile = ResistanceProfile {
+    physical: 0,
+    fire: 0,
+    frost: 0,
+    lightning: 0,
+    poison: 0,
+    holy: 0,
+    shadow: 0,
+};
+
+const ZERO_EQUIPMENT_STATS: EquipmentStats = EquipmentStats {
+    armor: 0,
+    attack_bonus: 0,
+    spell_power: 0,
+    crit_bonus: 0,
+    initiative_bonus: 0,
+    resistances: ZERO_RESISTANCES,
+};
+
+#[derive(Debug, Clone, Copy)]
+pub struct LootTableEntry {
+    pub item_type: &'static str,
+    pub min_qty: i32,
+    pub max_qty: i32,
+    pub weight: i32,
+    pub min_rarity: ItemRarity,
+}
+
+#[derive(Debug, Clone)]
+pub struct VendorInventory {
+    pub vendor_id: VendorId,
+    pub mode_buy: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct ItemDef {
-    pub item_type:     &'static str,
-    pub name:          &'static str,
-    pub description:   &'static str,
-    pub kind:          ItemKind,
-    /// HP restored when used (0 = no direct heal).
-    pub heal_amount:   i32,
-    /// Which equipment slot this occupies, if any.
-    pub equip_slot:    Option<EquipSlot>,
-    /// For weapons: whether attacks are melee / ranged / magic.
-    pub weapon_kind:   Option<WeaponKind>,
-    /// Attacks unlocked by this weapon when equipped.
-    pub attacks:       &'static [AttackOption],
-    /// Passive defense bonus while equipped.
-    pub defense_bonus: i32,
+    pub item_type: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
+    pub kind: ItemKind,
+    pub rarity: ItemRarity,
+    pub base_value: i32,
+    pub stackable: bool,
+    pub effects: &'static [ItemEffect],
+    pub equip_slot: Option<EquipSlot>,
+    pub weapon_kind: Option<WeaponKind>,
+    pub attacks: &'static [AttackOption],
+    pub equipment_stats: EquipmentStats,
 }
 
 impl ItemDef {
     pub fn is_usable(&self) -> bool {
-        self.kind == ItemKind::Consumable
+        !self.effects.is_empty()
     }
+
     pub fn is_equippable(&self) -> bool {
         self.equip_slot.is_some()
     }
@@ -139,282 +207,452 @@ impl ItemDef {
     }
 }
 
-// ── Weapon attack tables ──────────────────────────────────────────────────────
-
 const IRON_SWORD_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Slash",  accuracy_bonus: 6, min_damage: 4, max_damage: 9 },
-    AttackOption { name: "Lunge",  accuracy_bonus: 4, min_damage: 6, max_damage: 11 },
-];
-const TWIN_DAGGERS_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Quick Slash", accuracy_bonus: 10, min_damage: 3, max_damage: 7 },
-    AttackOption { name: "Backstab",    accuracy_bonus: 5,  min_damage: 6, max_damage: 10 },
-];
-const BATTLE_AXE_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Heavy Blow", accuracy_bonus: 3, min_damage: 8, max_damage: 15 },
-    AttackOption { name: "Cleave",     accuracy_bonus: 5, min_damage: 6, max_damage: 12 },
-];
-const WAR_HAMMER_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Crush",          accuracy_bonus: 4, min_damage: 7,  max_damage: 14 },
-    AttackOption { name: "Overhead Smash", accuracy_bonus: 2, min_damage: 10, max_damage: 16 },
-];
-const HUNTING_BOW_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Quick Shot",  accuracy_bonus: 7, min_damage: 4, max_damage: 8 },
-    AttackOption { name: "Power Draw",  accuracy_bonus: 3, min_damage: 6, max_damage: 11 },
-];
-const THROWING_KNIVES_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Flurry",        accuracy_bonus: 11, min_damage: 2, max_damage: 6 },
-    AttackOption { name: "Precise Throw", accuracy_bonus: 6,  min_damage: 4, max_damage: 9 },
-];
-const CROSSBOW_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Bolt Shot",  accuracy_bonus: 9, min_damage: 5, max_damage: 10 },
-    AttackOption { name: "Rapid Fire", accuracy_bonus: 6, min_damage: 3, max_damage: 8 },
-];
-const APPRENTICE_STAFF_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Arcane Bolt", accuracy_bonus: 7, min_damage: 5, max_damage: 10 },
-    AttackOption { name: "Minor Frost", accuracy_bonus: 6, min_damage: 4, max_damage: 8 },
-];
-const EMBER_WAND_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Ember Lance", accuracy_bonus: 5, min_damage: 6, max_damage: 12 },
-    AttackOption { name: "Fire Spark",  accuracy_bonus: 8, min_damage: 4, max_damage: 9 },
-];
-const STORM_ORB_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Lightning Bolt", accuracy_bonus: 6, min_damage: 7,  max_damage: 13 },
-    AttackOption { name: "Chain Strike",   accuracy_bonus: 4, min_damage: 8,  max_damage: 14 },
+    AttackOption { name: "Slash", accuracy_bonus: 2, min_damage: 5, max_damage: 9 },
+    AttackOption { name: "Lunge", accuracy_bonus: 1, min_damage: 7, max_damage: 11 },
 ];
 
-// ── Item catalog ──────────────────────────────────────────────────────────────
+const TWIN_DAGGER_ATTACKS: &[AttackOption] = &[
+    AttackOption { name: "Quick Slash", accuracy_bonus: 3, min_damage: 4, max_damage: 7 },
+    AttackOption { name: "Backstab", accuracy_bonus: 1, min_damage: 6, max_damage: 10 },
+];
+
+const BOW_ATTACKS: &[AttackOption] = &[
+    AttackOption { name: "Quick Shot", accuracy_bonus: 3, min_damage: 4, max_damage: 8 },
+    AttackOption { name: "Power Draw", accuracy_bonus: 1, min_damage: 6, max_damage: 10 },
+];
+
+const STAFF_ATTACKS: &[AttackOption] = &[
+    AttackOption { name: "Arcane Bolt", accuracy_bonus: 2, min_damage: 5, max_damage: 9 },
+    AttackOption { name: "Frost Tap", accuracy_bonus: 2, min_damage: 4, max_damage: 8 },
+];
+
+const WAND_ATTACKS: &[AttackOption] = &[
+    AttackOption { name: "Fire Spark", accuracy_bonus: 2, min_damage: 5, max_damage: 10 },
+    AttackOption { name: "Ember Lance", accuracy_bonus: 1, min_damage: 7, max_damage: 11 },
+];
+
+const HEALTH_EFFECT: &[ItemEffect] = &[ItemEffect::HealHp(24)];
+const BANDAGE_EFFECT: &[ItemEffect] = &[ItemEffect::HealHp(12)];
+const RATION_EFFECT: &[ItemEffect] = &[ItemEffect::HealHp(8), ItemEffect::RestoreStamina(6)];
+const MANA_EFFECT: &[ItemEffect] = &[ItemEffect::RestoreMana(18)];
+const STAMINA_EFFECT: &[ItemEffect] = &[ItemEffect::RestoreStamina(18)];
+const ANTIDOTE_EFFECT: &[ItemEffect] = &[ItemEffect::CurePoison];
 
 pub const ITEM_CATALOG: &[ItemDef] = &[
-    // ── Consumables ──────────────────────────────────────────────────────────
     ItemDef {
-        item_type: "health_potion", name: "Health Potion",
-        description: "A vial of crimson liquid brewed from mountain herbs. Restores 20 HP.",
-        kind: ItemKind::Consumable, heal_amount: 20,
-        equip_slot: None, weapon_kind: None, attacks: &[], defense_bonus: 0,
+        item_type: "health_potion",
+        name: "Health Potion",
+        description: "A bright red tonic that closes cuts and steadies breathing.",
+        kind: ItemKind::Consumable,
+        rarity: ItemRarity::Common,
+        base_value: 18,
+        stackable: true,
+        effects: HEALTH_EFFECT,
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
     },
     ItemDef {
-        item_type: "bandage", name: "Bandage",
-        description: "Strips of clean linen. Useful in a pinch. Restores 8 HP.",
-        kind: ItemKind::Consumable, heal_amount: 8,
-        equip_slot: None, weapon_kind: None, attacks: &[], defense_bonus: 0,
+        item_type: "bandage",
+        name: "Bandage",
+        description: "Quick field wrap for patching lighter injuries.",
+        kind: ItemKind::Consumable,
+        rarity: ItemRarity::Common,
+        base_value: 8,
+        stackable: true,
+        effects: BANDAGE_EFFECT,
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
     },
     ItemDef {
-        item_type: "antidote", name: "Antidote",
-        description: "A bitter green tonic. Neutralises common poisons.",
-        kind: ItemKind::Consumable, heal_amount: 0,
-        equip_slot: None, weapon_kind: None, attacks: &[], defense_bonus: 0,
+        item_type: "ration",
+        name: "Ration",
+        description: "Salt meat, hard bread, and enough calories to keep moving.",
+        kind: ItemKind::Consumable,
+        rarity: ItemRarity::Common,
+        base_value: 6,
+        stackable: true,
+        effects: RATION_EFFECT,
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
     },
     ItemDef {
-        item_type: "ration", name: "Ration",
-        description: "Hard bread and dried meat — reliable trail food. Restores 5 HP.",
-        kind: ItemKind::Consumable, heal_amount: 5,
-        equip_slot: None, weapon_kind: None, attacks: &[], defense_bonus: 0,
-    },
-    // ── Melee weapons ────────────────────────────────────────────────────────
-    ItemDef {
-        item_type: "iron_sword", name: "Iron Sword",
-        description: "A reliable blade of tempered iron. Unlocks Slash and Lunge.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Weapon), weapon_kind: Some(WeaponKind::Melee),
-        attacks: IRON_SWORD_ATTACKS, defense_bonus: 0,
-    },
-    ItemDef {
-        item_type: "twin_daggers", name: "Twin Daggers",
-        description: "Nimble paired blades favoured by rogues. Unlocks Quick Slash and Backstab.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Weapon), weapon_kind: Some(WeaponKind::Melee),
-        attacks: TWIN_DAGGERS_ATTACKS, defense_bonus: 0,
+        item_type: "mana_tonic",
+        name: "Mana Tonic",
+        description: "A bitter draught that restores spell reserve.",
+        kind: ItemKind::Consumable,
+        rarity: ItemRarity::Uncommon,
+        base_value: 22,
+        stackable: true,
+        effects: MANA_EFFECT,
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
     },
     ItemDef {
-        item_type: "battle_axe", name: "Battle Axe",
-        description: "A heavy two-handed axe. Unlocks Heavy Blow and Cleave.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Weapon), weapon_kind: Some(WeaponKind::Melee),
-        attacks: BATTLE_AXE_ATTACKS, defense_bonus: 0,
+        item_type: "stamina_draught",
+        name: "Stamina Draught",
+        description: "Restores drive and clears the ache from tired limbs.",
+        kind: ItemKind::Consumable,
+        rarity: ItemRarity::Uncommon,
+        base_value: 20,
+        stackable: true,
+        effects: STAMINA_EFFECT,
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
     },
     ItemDef {
-        item_type: "war_hammer", name: "War Hammer",
-        description: "A crushing weapon of iron and oak. Unlocks Crush and Overhead Smash.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Weapon), weapon_kind: Some(WeaponKind::Melee),
-        attacks: WAR_HAMMER_ATTACKS, defense_bonus: 0,
-    },
-    // ── Ranged weapons ───────────────────────────────────────────────────────
-    ItemDef {
-        item_type: "hunting_bow", name: "Hunting Bow",
-        description: "A carved longbow of yew. Unlocks Quick Shot and Power Draw.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Weapon), weapon_kind: Some(WeaponKind::Ranged),
-        attacks: HUNTING_BOW_ATTACKS, defense_bonus: 0,
-    },
-    ItemDef {
-        item_type: "throwing_knives", name: "Throwing Knives",
-        description: "A set of weighted throwing blades. Unlocks Flurry and Precise Throw.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Weapon), weapon_kind: Some(WeaponKind::Ranged),
-        attacks: THROWING_KNIVES_ATTACKS, defense_bonus: 0,
+        item_type: "antidote",
+        name: "Antidote",
+        description: "Neutralizes common toxins and clears poison.",
+        kind: ItemKind::Consumable,
+        rarity: ItemRarity::Common,
+        base_value: 14,
+        stackable: true,
+        effects: ANTIDOTE_EFFECT,
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
     },
     ItemDef {
-        item_type: "crossbow", name: "Crossbow",
-        description: "A mechanical ranged weapon of great precision. Unlocks Bolt Shot and Rapid Fire.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Weapon), weapon_kind: Some(WeaponKind::Ranged),
-        attacks: CROSSBOW_ATTACKS, defense_bonus: 0,
-    },
-    // ── Magic weapons ────────────────────────────────────────────────────────
-    ItemDef {
-        item_type: "apprentice_staff", name: "Apprentice Staff",
-        description: "A basic mage's staff etched with runes. Unlocks Arcane Bolt and Minor Frost.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Weapon), weapon_kind: Some(WeaponKind::Magic),
-        attacks: APPRENTICE_STAFF_ATTACKS, defense_bonus: 0,
-    },
-    ItemDef {
-        item_type: "ember_wand", name: "Ember Wand",
-        description: "A wand imbued with fire essence. Unlocks Ember Lance and Fire Spark.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Weapon), weapon_kind: Some(WeaponKind::Magic),
-        attacks: EMBER_WAND_ATTACKS, defense_bonus: 0,
-    },
-    ItemDef {
-        item_type: "storm_orb", name: "Storm Orb",
-        description: "A crackling orb of captured lightning. Unlocks Lightning Bolt and Chain Strike.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Weapon), weapon_kind: Some(WeaponKind::Magic),
-        attacks: STORM_ORB_ATTACKS, defense_bonus: 0,
-    },
-    // ── Armor ────────────────────────────────────────────────────────────────
-    ItemDef {
-        item_type: "leather_helm", name: "Leather Helm",
-        description: "A sturdy leather cap offering modest head protection.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Head), weapon_kind: None, attacks: &[], defense_bonus: 2,
+        item_type: "iron_sword",
+        name: "Iron Sword",
+        description: "Reliable steel favored by militia and caravan guards.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Common,
+        base_value: 42,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Weapon),
+        weapon_kind: Some(WeaponKind::Melee),
+        attacks: IRON_SWORD_ATTACKS,
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 2,
+            spell_power: 0,
+            crit_bonus: 0,
+            initiative_bonus: 0,
+            resistances: ResistanceProfile {
+                physical: 0,
+                fire: 0,
+                frost: 0,
+                lightning: 0,
+                poison: 0,
+                holy: 0,
+                shadow: 0,
+            },
+        },
     },
     ItemDef {
-        item_type: "leather_chest", name: "Leather Chest",
-        description: "A fitted leather chest piece. Standard adventurer's fare.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Chest), weapon_kind: None, attacks: &[], defense_bonus: 4,
+        item_type: "twin_daggers",
+        name: "Twin Daggers",
+        description: "Light blades built for precise openings and dirty work.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Uncommon,
+        base_value: 55,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Weapon),
+        weapon_kind: Some(WeaponKind::Melee),
+        attacks: TWIN_DAGGER_ATTACKS,
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 1,
+            spell_power: 0,
+            crit_bonus: 3,
+            initiative_bonus: 2,
+            resistances: ResistanceProfile {
+                physical: 0,
+                fire: 0,
+                frost: 0,
+                lightning: 0,
+                poison: 0,
+                holy: 0,
+                shadow: 0,
+            },
+        },
     },
     ItemDef {
-        item_type: "leather_legs", name: "Leather Legs",
-        description: "Leather-reinforced leg guards. Light and flexible.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Legs), weapon_kind: None, attacks: &[], defense_bonus: 3,
+        item_type: "hunting_bow",
+        name: "Hunting Bow",
+        description: "Yew bow suited to measured pressure at range.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Common,
+        base_value: 48,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Weapon),
+        weapon_kind: Some(WeaponKind::Ranged),
+        attacks: BOW_ATTACKS,
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 2,
+            spell_power: 0,
+            crit_bonus: 1,
+            initiative_bonus: 1,
+            resistances: ZERO_RESISTANCES,
+        },
     },
     ItemDef {
-        item_type: "leather_boots", name: "Leather Boots",
-        description: "Worn but reliable boots with a thick sole.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Feet), weapon_kind: None, attacks: &[], defense_bonus: 1,
+        item_type: "apprentice_staff",
+        name: "Apprentice Staff",
+        description: "A runed staff that steadies novice channeling.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Common,
+        base_value: 50,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Weapon),
+        weapon_kind: Some(WeaponKind::Magic),
+        attacks: STAFF_ATTACKS,
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 1,
+            spell_power: 3,
+            crit_bonus: 0,
+            initiative_bonus: 0,
+            resistances: ZERO_RESISTANCES,
+        },
     },
     ItemDef {
-        item_type: "leather_gloves", name: "Leather Gloves",
-        description: "Fingerless leather gloves for grip and protection.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Hands), weapon_kind: None, attacks: &[], defense_bonus: 1,
+        item_type: "ember_wand",
+        name: "Ember Wand",
+        description: "A refined focus for aggressive elemental casting.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Rare,
+        base_value: 88,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Weapon),
+        weapon_kind: Some(WeaponKind::Magic),
+        attacks: WAND_ATTACKS,
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 1,
+            spell_power: 5,
+            crit_bonus: 1,
+            initiative_bonus: 1,
+            resistances: ZERO_RESISTANCES,
+        },
     },
     ItemDef {
-        item_type: "iron_shield", name: "Iron Shield",
-        description: "A round shield of hammered iron. Solid defense.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Shield), weapon_kind: None, attacks: &[], defense_bonus: 6,
+        item_type: "wooden_shield",
+        name: "Wooden Shield",
+        description: "Simple protection that keeps the worst of a blow off your ribs.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Common,
+        base_value: 28,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Shield),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 3,
+            attack_bonus: 0,
+            spell_power: 0,
+            crit_bonus: 0,
+            initiative_bonus: 0,
+            resistances: ResistanceProfile { physical: 1, ..ZERO_RESISTANCES },
+        },
     },
     ItemDef {
-        item_type: "wooden_shield", name: "Wooden Shield",
-        description: "A reinforced wooden buckler. Light but effective.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Shield), weapon_kind: None, attacks: &[], defense_bonus: 3,
+        item_type: "leather_chest",
+        name: "Leather Jerkin",
+        description: "Sturdy boiled leather with enough give for active fighting.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Common,
+        base_value: 32,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Chest),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 4,
+            attack_bonus: 0,
+            spell_power: 0,
+            crit_bonus: 0,
+            initiative_bonus: 0,
+            resistances: ResistanceProfile { physical: 1, ..ZERO_RESISTANCES },
+        },
     },
     ItemDef {
-        item_type: "traveler_cloak", name: "Traveler's Cloak",
-        description: "A thick woolen cloak that wards off the chill.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Cape), weapon_kind: None, attacks: &[], defense_bonus: 1,
+        item_type: "leather_legs",
+        name: "Leather Greaves",
+        description: "Flexible leg guards for long marches and quick turns.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Common,
+        base_value: 24,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Legs),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 2,
+            attack_bonus: 0,
+            spell_power: 0,
+            crit_bonus: 0,
+            initiative_bonus: 1,
+            resistances: ZERO_RESISTANCES,
+        },
     },
     ItemDef {
-        item_type: "gold_ring", name: "Gold Ring",
-        description: "A simple band of gold. Worn smooth with age.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Ring), weapon_kind: None, attacks: &[], defense_bonus: 0,
+        item_type: "traveler_cloak",
+        name: "Traveler's Cloak",
+        description: "Wool and weather-proofing stitched for hard roads.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Common,
+        base_value: 20,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Cape),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 1,
+            attack_bonus: 0,
+            spell_power: 0,
+            crit_bonus: 0,
+            initiative_bonus: 1,
+            resistances: ResistanceProfile { frost: 1, ..ZERO_RESISTANCES },
+        },
     },
     ItemDef {
-        item_type: "silver_amulet", name: "Silver Amulet",
-        description: "An amulet etched with faint protective runes.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: Some(EquipSlot::Neck), weapon_kind: None, attacks: &[], defense_bonus: 2,
+        item_type: "silver_amulet",
+        name: "Silver Amulet",
+        description: "An old protective charm used to ward restless spirits.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Uncommon,
+        base_value: 60,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Neck),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 0,
+            spell_power: 2,
+            crit_bonus: 0,
+            initiative_bonus: 0,
+            resistances: ResistanceProfile { holy: 2, shadow: 1, ..ZERO_RESISTANCES },
+        },
     },
-    // ── Loot ─────────────────────────────────────────────────────────────────
     ItemDef {
-        item_type: "wolf_pelt", name: "Wolf Pelt",
-        description: "The thick pelt of a wild wolf. Might fetch a fair price.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: None, weapon_kind: None, attacks: &[], defense_bonus: 0,
+        item_type: "wolf_pelt",
+        name: "Wolf Pelt",
+        description: "A thick hide that sells well to fur traders.",
+        kind: ItemKind::Loot,
+        rarity: ItemRarity::Common,
+        base_value: 12,
+        stackable: true,
+        effects: &[],
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
     },
     ItemDef {
-        item_type: "fox_pelt", name: "Fox Pelt",
-        description: "A fine pelt with a russet sheen. Soft and surprisingly valuable.",
-        kind: ItemKind::Equipment, heal_amount: 0,
-        equip_slot: None, weapon_kind: None, attacks: &[], defense_bonus: 0,
+        item_type: "bandit_seal",
+        name: "Bandit Seal",
+        description: "Stamped insignia stolen from raider captains.",
+        kind: ItemKind::Loot,
+        rarity: ItemRarity::Uncommon,
+        base_value: 20,
+        stackable: true,
+        effects: &[],
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
     },
     ItemDef {
-        item_type: "old_map", name: "Old Map",
-        description: "A worn parchment covered in faded markings. Someone went to great lengths to hide this.",
-        kind: ItemKind::Quest, heal_amount: 0,
-        equip_slot: None, weapon_kind: None, attacks: &[], defense_bonus: 0,
+        item_type: "grave_ash",
+        name: "Grave Ash",
+        description: "Powder scraped from an active barrow's inner crypt.",
+        kind: ItemKind::Loot,
+        rarity: ItemRarity::Rare,
+        base_value: 26,
+        stackable: true,
+        effects: &[],
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
+    },
+    ItemDef {
+        item_type: "old_map",
+        name: "Old Map",
+        description: "A courier chart detailing paths across the Sunken Road.",
+        kind: ItemKind::Quest,
+        rarity: ItemRarity::Uncommon,
+        base_value: 0,
+        stackable: true,
+        effects: &[],
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
     },
 ];
 
 pub fn find_def(item_type: &str) -> Option<&'static ItemDef> {
-    ITEM_CATALOG.iter().find(|d| d.item_type == item_type)
+    ITEM_CATALOG.iter().find(|item| item.item_type == item_type)
 }
 
-/// Returns the (slot_key, item_type) pairs that a gear package starts with equipped.
-/// This is the single source of truth used by both the DB seeder and the creation UI.
 pub fn gear_package_items(gear_name: &str) -> &'static [(&'static str, &'static str)] {
     match gear_name {
         "Melee Kit" => &[
             ("weapon", "iron_sword"),
             ("shield", "wooden_shield"),
-            ("chest",  "leather_chest"),
-            ("legs",   "leather_legs"),
+            ("chest", "leather_chest"),
+            ("legs", "leather_legs"),
         ],
         "Ranged Kit" => &[
             ("weapon", "hunting_bow"),
-            ("cape",   "traveler_cloak"),
-            ("chest",  "leather_chest"),
-            ("legs",   "leather_legs"),
+            ("cape", "traveler_cloak"),
+            ("chest", "leather_chest"),
+            ("legs", "leather_legs"),
         ],
         "Arcane Kit" => &[
             ("weapon", "apprentice_staff"),
-            ("chest",  "leather_chest"),
-            ("legs",   "leather_legs"),
+            ("neck", "silver_amulet"),
+            ("cape", "traveler_cloak"),
         ],
         "Stealth Kit" => &[
             ("weapon", "twin_daggers"),
-            ("cape",   "traveler_cloak"),
-            ("chest",  "leather_chest"),
-            ("legs",   "leather_legs"),
+            ("cape", "traveler_cloak"),
+            ("chest", "leather_chest"),
+            ("legs", "leather_legs"),
         ],
         _ => &[],
     }
 }
 
-// ── Equipment state ───────────────────────────────────────────────────────────
-
-/// Currently equipped items, keyed by slot.
 #[derive(Debug, Clone, Default)]
 pub struct Equipment {
     pub weapon: Option<String>,
     pub shield: Option<String>,
-    pub head:   Option<String>,
-    pub neck:   Option<String>,
-    pub chest:  Option<String>,
-    pub cape:   Option<String>,
-    pub hands:  Option<String>,
-    pub ring:   Option<String>,
-    pub legs:   Option<String>,
-    pub feet:   Option<String>,
+    pub head: Option<String>,
+    pub neck: Option<String>,
+    pub chest: Option<String>,
+    pub cape: Option<String>,
+    pub hands: Option<String>,
+    pub ring: Option<String>,
+    pub legs: Option<String>,
+    pub feet: Option<String>,
 }
 
 impl Equipment {
@@ -422,93 +660,92 @@ impl Equipment {
         match slot {
             EquipSlot::Weapon => self.weapon.as_deref(),
             EquipSlot::Shield => self.shield.as_deref(),
-            EquipSlot::Head   => self.head.as_deref(),
-            EquipSlot::Neck   => self.neck.as_deref(),
-            EquipSlot::Chest  => self.chest.as_deref(),
-            EquipSlot::Cape   => self.cape.as_deref(),
-            EquipSlot::Hands  => self.hands.as_deref(),
-            EquipSlot::Ring   => self.ring.as_deref(),
-            EquipSlot::Legs   => self.legs.as_deref(),
-            EquipSlot::Feet   => self.feet.as_deref(),
+            EquipSlot::Head => self.head.as_deref(),
+            EquipSlot::Neck => self.neck.as_deref(),
+            EquipSlot::Chest => self.chest.as_deref(),
+            EquipSlot::Cape => self.cape.as_deref(),
+            EquipSlot::Hands => self.hands.as_deref(),
+            EquipSlot::Ring => self.ring.as_deref(),
+            EquipSlot::Legs => self.legs.as_deref(),
+            EquipSlot::Feet => self.feet.as_deref(),
         }
     }
 
-    pub fn set_slot(&mut self, slot: EquipSlot, item_type: Option<String>) {
+    pub fn set_slot(&mut self, slot: EquipSlot, item: Option<String>) {
         match slot {
-            EquipSlot::Weapon => self.weapon = item_type,
-            EquipSlot::Shield => self.shield = item_type,
-            EquipSlot::Head   => self.head   = item_type,
-            EquipSlot::Neck   => self.neck   = item_type,
-            EquipSlot::Chest  => self.chest  = item_type,
-            EquipSlot::Cape   => self.cape   = item_type,
-            EquipSlot::Hands  => self.hands  = item_type,
-            EquipSlot::Ring   => self.ring   = item_type,
-            EquipSlot::Legs   => self.legs   = item_type,
-            EquipSlot::Feet   => self.feet   = item_type,
+            EquipSlot::Weapon => self.weapon = item,
+            EquipSlot::Shield => self.shield = item,
+            EquipSlot::Head => self.head = item,
+            EquipSlot::Neck => self.neck = item,
+            EquipSlot::Chest => self.chest = item,
+            EquipSlot::Cape => self.cape = item,
+            EquipSlot::Hands => self.hands = item,
+            EquipSlot::Ring => self.ring = item,
+            EquipSlot::Legs => self.legs = item,
+            EquipSlot::Feet => self.feet = item,
         }
     }
 
-    fn weapon_attacks_for_kind(&self, kind: WeaponKind) -> Vec<AttackOption> {
-        let weapon_type = match self.weapon.as_deref() {
-            Some(t) => t,
-            None => return vec![],
-        };
-        let def = match find_def(weapon_type) {
-            Some(d) => d,
-            None => return vec![],
-        };
-        if def.weapon_kind != Some(kind) {
-            return vec![];
-        }
-        def.attacks.to_vec()
-    }
-
-    pub fn melee_attacks(&self) -> Vec<AttackOption> {
-        self.weapon_attacks_for_kind(WeaponKind::Melee)
-    }
-
-    pub fn ranged_attacks(&self) -> Vec<AttackOption> {
-        self.weapon_attacks_for_kind(WeaponKind::Ranged)
-    }
-
-    pub fn magic_attacks(&self) -> Vec<AttackOption> {
-        self.weapon_attacks_for_kind(WeaponKind::Magic)
-    }
-
-    /// Sum of all equipped items' armor bonuses.
-    pub fn total_armor_bonus(&self) -> i32 {
+    pub fn equipped_defs(&self) -> Vec<&'static ItemDef> {
         EquipSlot::ALL
             .iter()
-            .filter_map(|&slot| {
-                let item_type = self.get_slot(slot)?;
-                Some(find_def(item_type)?.defense_bonus)
-            })
-            .sum()
+            .filter_map(|slot| self.get_slot(*slot))
+            .filter_map(find_def)
+            .collect()
     }
 
-    pub fn total_defense_bonus(&self) -> i32 {
-        self.total_armor_bonus()
+    pub fn total_equipment_stats(&self) -> EquipmentStats {
+        let mut total = EquipmentStats::default();
+        for def in self.equipped_defs() {
+            total.armor += def.equipment_stats.armor;
+            total.attack_bonus += def.equipment_stats.attack_bonus;
+            total.spell_power += def.equipment_stats.spell_power;
+            total.crit_bonus += def.equipment_stats.crit_bonus;
+            total.initiative_bonus += def.equipment_stats.initiative_bonus;
+            total.resistances.physical += def.equipment_stats.resistances.physical;
+            total.resistances.fire += def.equipment_stats.resistances.fire;
+            total.resistances.frost += def.equipment_stats.resistances.frost;
+            total.resistances.lightning += def.equipment_stats.resistances.lightning;
+            total.resistances.poison += def.equipment_stats.resistances.poison;
+            total.resistances.holy += def.equipment_stats.resistances.holy;
+            total.resistances.shadow += def.equipment_stats.resistances.shadow;
+        }
+        total
+    }
+
+    pub fn total_armor_bonus(&self) -> i32 {
+        self.total_equipment_stats().armor
+    }
+
+    pub fn attack_options(&self) -> Vec<AttackOption> {
+        self.weapon
+            .as_deref()
+            .and_then(find_def)
+            .map(|def| def.attacks.to_vec())
+            .unwrap_or_default()
     }
 }
-
-// ── Inventory bag state ───────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct InventoryItem {
     pub item_type: String,
-    pub quantity:  i32,
+    pub quantity: i32,
 }
 
 impl InventoryItem {
     pub fn def(&self) -> Option<&'static ItemDef> {
         find_def(&self.item_type)
     }
+
+    pub fn value_each(&self) -> i32 {
+        self.def().map(|def| def.base_value).unwrap_or(0)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct InventoryState {
-    pub items:            Vec<InventoryItem>,
-    pub cursor:           usize,
+    pub items: Vec<InventoryItem>,
+    pub cursor: usize,
     pub last_use_message: Option<String>,
 }
 
@@ -518,7 +755,7 @@ impl InventoryState {
     }
 
     pub fn selected_def(&self) -> Option<&'static ItemDef> {
-        self.selected().and_then(|i| i.def())
+        self.selected().and_then(|item| item.def())
     }
 
     pub fn cursor_up(&mut self) {
@@ -528,13 +765,15 @@ impl InventoryState {
     }
 
     pub fn cursor_down(&mut self) {
-        if !self.items.is_empty() && self.cursor < self.items.len() - 1 {
+        if !self.items.is_empty() && self.cursor + 1 < self.items.len() {
             self.cursor += 1;
         }
     }
 
     pub fn clamp_cursor(&mut self) {
-        if !self.items.is_empty() && self.cursor >= self.items.len() {
+        if self.items.is_empty() {
+            self.cursor = 0;
+        } else if self.cursor >= self.items.len() {
             self.cursor = self.items.len() - 1;
         }
     }

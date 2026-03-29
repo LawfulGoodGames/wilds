@@ -6,6 +6,7 @@ pub mod event;
 pub mod inventory;
 pub mod settings;
 pub mod ui;
+pub mod world;
 
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {

@@ -1,51 +1,69 @@
-// ── XP / Level math ──────────────────────────────────────────────────────────
+pub const MAX_LEVEL: i32 = 20;
+pub const STAT_POINTS: i32 = 6;
+pub const MAX_PROFICIENCY_LEVEL: u32 = 99;
 
-pub const MAX_SKILL_LEVEL: u32 = 99;
-
-/// Total XP required to reach `level` (RuneScape formula).
-/// Level 1 = 0 XP, Level 2 = 83 XP, Level 99 = 13,034,431 XP.
-pub fn xp_for_level(level: u32) -> u32 {
+pub fn xp_for_level(level: i32) -> i32 {
     if level <= 1 {
-        return 0;
+        0
+    } else {
+        (level - 1) * (level - 1) * 120
     }
-    let mut points: f64 = 0.0;
-    for i in 1..(level as usize) {
-        points += f64::floor(i as f64 + 300.0 * f64::powf(2.0, i as f64 / 7.0));
-    }
-    f64::floor(points / 4.0) as u32
 }
 
-/// Current level for a given amount of XP (1–99).
-pub fn level_from_xp(xp: i32) -> u32 {
-    for lvl in (1..=MAX_SKILL_LEVEL).rev() {
-        if xp as u32 >= xp_for_level(lvl) {
-            return lvl;
+pub fn level_from_xp(xp: i32) -> i32 {
+    for level in (1..=MAX_LEVEL).rev() {
+        if xp >= xp_for_level(level) {
+            return level;
         }
     }
     1
 }
 
-/// XP still needed to reach the next level.
-pub fn xp_to_next_level(xp: i32) -> u32 {
+pub fn xp_to_next_level(xp: i32) -> i32 {
     let current = level_from_xp(xp);
-    if current >= MAX_SKILL_LEVEL {
-        return 0;
+    if current >= MAX_LEVEL {
+        0
+    } else {
+        xp_for_level(current + 1) - xp
     }
-    xp_for_level(current + 1).saturating_sub(xp as u32)
 }
 
-/// Progress fraction (0.0–1.0) through the current level.
 pub fn level_progress_pct(xp: i32) -> f64 {
     let current = level_from_xp(xp);
-    if current >= MAX_SKILL_LEVEL {
+    if current >= MAX_LEVEL {
         return 1.0;
     }
     let start = xp_for_level(current) as f64;
-    let end   = xp_for_level(current + 1) as f64;
+    let end = xp_for_level(current + 1) as f64;
     ((xp as f64 - start) / (end - start)).clamp(0.0, 1.0)
 }
 
-// ── Skills ────────────────────────────────────────────────────────────────────
+pub fn proficiency_xp_for_level(level: u32) -> u32 {
+    if level <= 1 {
+        0
+    } else {
+        (level - 1) * (level - 1) * 75
+    }
+}
+
+pub fn proficiency_level_from_xp(xp: i32) -> u32 {
+    for level in (1..=MAX_PROFICIENCY_LEVEL).rev() {
+        if xp as u32 >= proficiency_xp_for_level(level) {
+            return level;
+        }
+    }
+    1
+}
+
+pub fn proficiency_progress_pct(xp: i32) -> f64 {
+    let current = proficiency_level_from_xp(xp);
+    if current >= MAX_PROFICIENCY_LEVEL {
+        return 1.0;
+    }
+    let start = proficiency_xp_for_level(current) as f64;
+    let end = proficiency_xp_for_level(current + 1) as f64;
+    ((xp as f64 - start) / (end - start)).clamp(0.0, 1.0)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MinorSkill {
@@ -81,72 +99,64 @@ impl MinorSkill {
 
     pub fn name(self) -> &'static str {
         match self {
-            MinorSkill::Cooking       => "Cooking",
-            MinorSkill::Blacksmithing => "Blacksmithing",
-            MinorSkill::Mining        => "Mining",
-            MinorSkill::Woodcutting   => "Woodcutting",
-            MinorSkill::Fishing       => "Fishing",
-            MinorSkill::Herbalism     => "Herbalism",
-            MinorSkill::Farming       => "Farming",
-            MinorSkill::Crafting      => "Crafting",
-            MinorSkill::Enchanting    => "Enchanting",
-            MinorSkill::Thieving      => "Thieving",
-            MinorSkill::Prayer        => "Prayer",
-            MinorSkill::Runecrafting  => "Runecrafting",
+            Self::Cooking => "Cooking",
+            Self::Blacksmithing => "Blacksmithing",
+            Self::Mining => "Mining",
+            Self::Woodcutting => "Woodcutting",
+            Self::Fishing => "Fishing",
+            Self::Herbalism => "Herbalism",
+            Self::Farming => "Farming",
+            Self::Crafting => "Crafting",
+            Self::Enchanting => "Enchanting",
+            Self::Thieving => "Thieving",
+            Self::Prayer => "Prayer",
+            Self::Runecrafting => "Runecrafting",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            MinorSkill::Cooking       => "Prepare food that restores HP and grants buffs.",
-            MinorSkill::Blacksmithing => "Forge weapons and armor from raw ore.",
-            MinorSkill::Mining        => "Extract ore, gems, and stone from the earth.",
-            MinorSkill::Woodcutting   => "Fell trees and gather wood for crafting.",
-            MinorSkill::Fishing       => "Catch fish from rivers, lakes, and seas.",
-            MinorSkill::Herbalism     => "Gather herbs and brew potions.",
-            MinorSkill::Farming       => "Grow crops and tend livestock.",
-            MinorSkill::Crafting      => "Create items from leather, cloth, and bone.",
-            MinorSkill::Enchanting    => "Imbue items with magical properties.",
-            MinorSkill::Thieving      => "Pick pockets, crack locks, and move unseen.",
-            MinorSkill::Prayer        => "Channel divine favour for blessings.",
-            MinorSkill::Runecrafting  => "Craft runes used in spellcasting.",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<MinorSkill> {
-        match s {
-            "Cooking"       => Some(MinorSkill::Cooking),
-            "Blacksmithing" => Some(MinorSkill::Blacksmithing),
-            "Mining"        => Some(MinorSkill::Mining),
-            "Woodcutting"   => Some(MinorSkill::Woodcutting),
-            "Fishing"       => Some(MinorSkill::Fishing),
-            "Herbalism"     => Some(MinorSkill::Herbalism),
-            "Farming"       => Some(MinorSkill::Farming),
-            "Crafting"      => Some(MinorSkill::Crafting),
-            "Enchanting"    => Some(MinorSkill::Enchanting),
-            "Thieving"      => Some(MinorSkill::Thieving),
-            "Prayer"        => Some(MinorSkill::Prayer),
-            "Runecrafting"  => Some(MinorSkill::Runecrafting),
-            _               => None,
+            Self::Cooking => "Prepare field meals and restorative dishes.",
+            Self::Blacksmithing => "Shape metal gear and understand armor quality.",
+            Self::Mining => "Recover ore, stone, and buried valuables.",
+            Self::Woodcutting => "Harvest timber and survive the deep wilds.",
+            Self::Fishing => "Gather food and supplies from rivers and lakes.",
+            Self::Herbalism => "Identify herbs and distill useful tonics.",
+            Self::Farming => "Raise staple goods and maintain camp stores.",
+            Self::Crafting => "Assemble leatherwork, talismans, and tools.",
+            Self::Enchanting => "Improve magical gear and stabilize relics.",
+            Self::Thieving => "Slip through danger and work with light hands.",
+            Self::Prayer => "Hold to rites of warding, healing, and resolve.",
+            Self::Runecrafting => "Channel raw magical script into useful power.",
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct MinorSkillData {
+pub struct ProficiencyData {
     pub kind: MinorSkill,
-    pub xp:   i32,
+    pub xp: i32,
 }
 
-impl MinorSkillData {
-    pub fn level(&self) -> u32    { level_from_xp(self.xp) }
-    pub fn xp_to_next(&self) -> u32 { xp_to_next_level(self.xp) }
-    pub fn progress(&self) -> f64 { level_progress_pct(self.xp) }
+impl ProficiencyData {
+    pub fn level(&self) -> u32 {
+        proficiency_level_from_xp(self.xp)
+    }
+
+    pub fn progress(&self) -> f64 {
+        proficiency_progress_pct(self.xp)
+    }
+
+    pub fn xp_to_next(&self) -> u32 {
+        let level = self.level();
+        if level >= MAX_PROFICIENCY_LEVEL {
+            0
+        } else {
+            proficiency_xp_for_level(level + 1).saturating_sub(self.xp as u32)
+        }
+    }
 }
 
-// ── Major Skills ──────────────────────────────────────────────────────────────
-
-/// The 6 core stats set at character creation. Governed by combat and class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MajorSkill {
     Strength,
@@ -169,61 +179,28 @@ impl MajorSkill {
 
     pub fn short_name(self) -> &'static str {
         match self {
-            MajorSkill::Strength     => "STR",
-            MajorSkill::Dexterity    => "DEX",
-            MajorSkill::Constitution => "CON",
-            MajorSkill::Intelligence => "INT",
-            MajorSkill::Wisdom       => "WIS",
-            MajorSkill::Charisma     => "CHA",
+            Self::Strength => "STR",
+            Self::Dexterity => "DEX",
+            Self::Constitution => "CON",
+            Self::Intelligence => "INT",
+            Self::Wisdom => "WIS",
+            Self::Charisma => "CHA",
         }
     }
 
     pub fn full_name(self) -> &'static str {
         match self {
-            MajorSkill::Strength     => "Strength",
-            MajorSkill::Dexterity    => "Dexterity",
-            MajorSkill::Constitution => "Constitution",
-            MajorSkill::Intelligence => "Intelligence",
-            MajorSkill::Wisdom       => "Wisdom",
-            MajorSkill::Charisma     => "Charisma",
-        }
-    }
-
-    /// The DB column name for this skill in the `characters` table.
-    pub fn db_column(self) -> &'static str {
-        match self {
-            MajorSkill::Strength     => "str_stat",
-            MajorSkill::Dexterity    => "dex_stat",
-            MajorSkill::Constitution => "con_stat",
-            MajorSkill::Intelligence => "int_stat",
-            MajorSkill::Wisdom       => "wis_stat",
-            MajorSkill::Charisma     => "cha_stat",
+            Self::Strength => "Strength",
+            Self::Dexterity => "Dexterity",
+            Self::Constitution => "Constitution",
+            Self::Intelligence => "Intelligence",
+            Self::Wisdom => "Wisdom",
+            Self::Charisma => "Charisma",
         }
     }
 }
 
-/// A major skill value for a loaded character.
-#[derive(Debug, Clone)]
-pub struct MajorSkillData {
-    pub kind:   MajorSkill,
-    pub points: i32,
-}
-
-// ── Types ────────────────────────────────────────────────────────────────────
-
-pub const STAT_LABELS: [&str; 6] = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
-pub const STAT_FULL: [&str; 6] = [
-    "Strength",
-    "Dexterity",
-    "Constitution",
-    "Intelligence",
-    "Wisdom",
-    "Charisma",
-];
-
-// ── Stats ─────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Stats {
     pub strength: i32,
     pub dexterity: i32,
@@ -236,12 +213,12 @@ pub struct Stats {
 impl Default for Stats {
     fn default() -> Self {
         Self {
-            strength: 5,
-            dexterity: 5,
-            constitution: 5,
-            intelligence: 5,
-            wisdom: 5,
-            charisma: 5,
+            strength: 8,
+            dexterity: 8,
+            constitution: 8,
+            intelligence: 8,
+            wisdom: 8,
+            charisma: 8,
         }
     }
 }
@@ -271,7 +248,6 @@ impl Stats {
         }
     }
 
-    /// Returns a new Stats that is self + other (for applying race bonuses).
     pub fn add_bonuses(&self, other: &Stats) -> Stats {
         Stats {
             strength: self.strength + other.strength,
@@ -282,11 +258,110 @@ impl Stats {
             charisma: self.charisma + other.charisma,
         }
     }
+
+    pub fn modifier(&self, skill: MajorSkill) -> i32 {
+        (self.by_skill(skill) - 10).div_euclid(2)
+    }
+
+    pub fn by_skill(&self, skill: MajorSkill) -> i32 {
+        match skill {
+            MajorSkill::Strength => self.strength,
+            MajorSkill::Dexterity => self.dexterity,
+            MajorSkill::Constitution => self.constitution,
+            MajorSkill::Intelligence => self.intelligence,
+            MajorSkill::Wisdom => self.wisdom,
+            MajorSkill::Charisma => self.charisma,
+        }
+    }
 }
 
-// ── Race ──────────────────────────────────────────────────────────────────────
+pub const STAT_LABELS: [&str; 6] = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
+pub const STAT_FULL: [&str; 6] = [
+    "Strength",
+    "Dexterity",
+    "Constitution",
+    "Intelligence",
+    "Wisdom",
+    "Charisma",
+];
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResistanceProfile {
+    pub physical: i32,
+    pub fire: i32,
+    pub frost: i32,
+    pub lightning: i32,
+    pub poison: i32,
+    pub holy: i32,
+    pub shadow: i32,
+}
+
+impl Default for ResistanceProfile {
+    fn default() -> Self {
+        Self {
+            physical: 0,
+            fire: 0,
+            frost: 0,
+            lightning: 0,
+            poison: 0,
+            holy: 0,
+            shadow: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourcePool {
+    pub hp: i32,
+    pub max_hp: i32,
+    pub mana: i32,
+    pub max_mana: i32,
+    pub stamina: i32,
+    pub max_stamina: i32,
+}
+
+impl ResourcePool {
+    pub fn full(max_hp: i32, max_mana: i32, max_stamina: i32) -> Self {
+        Self {
+            hp: max_hp,
+            max_hp,
+            mana: max_mana,
+            max_mana,
+            stamina: max_stamina,
+            max_stamina,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DerivedStats {
+    pub defense: i32,
+    pub initiative: i32,
+    pub crit_chance: i32,
+    pub dodge: i32,
+    pub spell_power: i32,
+    pub healing_power: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct KnownAbility {
+    pub ability_id: String,
+    pub rank: i32,
+    pub unlocked: bool,
+    pub cooldown_remaining: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct LevelUpReward {
+    pub levels_gained: i32,
+    pub attribute_points_awarded: i32,
+    pub new_ability_ids: Vec<String>,
+    pub hp_gain: i32,
+    pub mana_gain: i32,
+    pub stamina_gain: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Race {
     Human,
     Elf,
@@ -312,45 +387,45 @@ impl Race {
 
     pub fn name(self) -> &'static str {
         match self {
-            Race::Human => "Human",
-            Race::Elf => "Elf",
-            Race::Dwarf => "Dwarf",
-            Race::Halfling => "Halfling",
-            Race::Orc => "Orc",
-            Race::Tiefling => "Tiefling",
-            Race::Gnome => "Gnome",
-            Race::Dragonborn => "Dragonborn",
+            Self::Human => "Human",
+            Self::Elf => "Elf",
+            Self::Dwarf => "Dwarf",
+            Self::Halfling => "Halfling",
+            Self::Orc => "Orc",
+            Self::Tiefling => "Tiefling",
+            Self::Gnome => "Gnome",
+            Self::Dragonborn => "Dragonborn",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            Race::Human =>      "Adaptable and ambitious, found everywhere.",
-            Race::Elf =>        "Ancient and graceful, attuned to nature.",
-            Race::Dwarf =>      "Hardy mountain folk, masters of craft.",
-            Race::Halfling =>   "Small and nimble, surprisingly lucky.",
-            Race::Orc =>        "Fierce warriors born from wild lands.",
-            Race::Tiefling =>   "Touched by infernal power, misunderstood.",
-            Race::Gnome =>      "Inventive tinkerers with boundless curiosity.",
-            Race::Dragonborn => "Proud draconic heritage, breath of fire.",
+            Self::Human => "Adaptable frontier survivors with broad training.",
+            Self::Elf => "Quick and disciplined, gifted in sight and spellcraft.",
+            Self::Dwarf => "Durable keepers of steel, stone, and stubborn will.",
+            Self::Halfling => "Small-footed opportunists with calm nerve under pressure.",
+            Self::Orc => "Relentless warriors built for impact and endurance.",
+            Self::Tiefling => "Canny and forceful, comfortable around dangerous power.",
+            Self::Gnome => "Sharp-minded planners with excellent magical instinct.",
+            Self::Dragonborn => "Bold champions with commanding presence and martial pride.",
         }
     }
 
     pub fn bonus_label(self) -> &'static str {
         match self {
-            Race::Human =>      "+1 to all stats",
-            Race::Elf =>        "+2 DEX, +1 INT",
-            Race::Dwarf =>      "+2 CON, +1 STR",
-            Race::Halfling =>   "+2 DEX, +1 CHA",
-            Race::Orc =>        "+2 STR, +1 CON",
-            Race::Tiefling =>   "+2 CHA, +1 INT",
-            Race::Gnome =>      "+2 INT, +1 WIS",
-            Race::Dragonborn => "+2 STR, +1 CHA",
+            Self::Human => "+1 to all stats",
+            Self::Elf => "+2 DEX, +1 INT",
+            Self::Dwarf => "+2 CON, +1 STR",
+            Self::Halfling => "+2 DEX, +1 CHA",
+            Self::Orc => "+2 STR, +1 CON",
+            Self::Tiefling => "+2 CHA, +1 INT",
+            Self::Gnome => "+2 INT, +1 WIS",
+            Self::Dragonborn => "+2 STR, +1 CHA",
         }
     }
 
     pub fn stat_bonuses(self) -> Stats {
-        let mut s = Stats {
+        let mut out = Stats {
             strength: 0,
             dexterity: 0,
             constitution: 0,
@@ -359,25 +434,56 @@ impl Race {
             charisma: 0,
         };
         match self {
-            Race::Human => {
-                s.strength = 1; s.dexterity = 1; s.constitution = 1;
-                s.intelligence = 1; s.wisdom = 1; s.charisma = 1;
+            Self::Human => {
+                out.strength = 1;
+                out.dexterity = 1;
+                out.constitution = 1;
+                out.intelligence = 1;
+                out.wisdom = 1;
+                out.charisma = 1;
             }
-            Race::Elf =>        { s.dexterity = 2; s.intelligence = 1; }
-            Race::Dwarf =>      { s.constitution = 2; s.strength = 1; }
-            Race::Halfling =>   { s.dexterity = 2; s.charisma = 1; }
-            Race::Orc =>        { s.strength = 2; s.constitution = 1; }
-            Race::Tiefling =>   { s.charisma = 2; s.intelligence = 1; }
-            Race::Gnome =>      { s.intelligence = 2; s.wisdom = 1; }
-            Race::Dragonborn => { s.strength = 2; s.charisma = 1; }
+            Self::Elf => {
+                out.dexterity = 2;
+                out.intelligence = 1;
+            }
+            Self::Dwarf => {
+                out.constitution = 2;
+                out.strength = 1;
+            }
+            Self::Halfling => {
+                out.dexterity = 2;
+                out.charisma = 1;
+            }
+            Self::Orc => {
+                out.strength = 2;
+                out.constitution = 1;
+            }
+            Self::Tiefling => {
+                out.charisma = 2;
+                out.intelligence = 1;
+            }
+            Self::Gnome => {
+                out.intelligence = 2;
+                out.wisdom = 1;
+            }
+            Self::Dragonborn => {
+                out.strength = 2;
+                out.charisma = 1;
+            }
         }
-        s
+        out
+    }
+
+    pub fn from_name(name: &str) -> Self {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|race| race.name() == name)
+            .unwrap_or(Self::Human)
     }
 }
 
-// ── Class ─────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Class {
     Warrior,
     Ranger,
@@ -399,41 +505,53 @@ impl Class {
 
     pub fn name(self) -> &'static str {
         match self {
-            Class::Warrior => "Warrior",
-            Class::Ranger  => "Ranger",
-            Class::Mage    => "Mage",
-            Class::Rogue   => "Rogue",
-            Class::Paladin => "Paladin",
-            Class::Cleric  => "Cleric",
+            Self::Warrior => "Warrior",
+            Self::Ranger => "Ranger",
+            Self::Mage => "Mage",
+            Self::Rogue => "Rogue",
+            Self::Paladin => "Paladin",
+            Self::Cleric => "Cleric",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            Class::Warrior => "Master of arms and armor. Leads from the front.",
-            Class::Ranger  => "Swift hunter and keen tracker of the wilds.",
-            Class::Mage    => "Scholar of the arcane. Power through knowledge.",
-            Class::Rogue   => "Quick, cunning, and deadly from the shadows.",
-            Class::Paladin => "Holy knight bound by oath and divine power.",
-            Class::Cleric  => "Servant of the divine. Healer and protector.",
+            Self::Warrior => "Front-line bruiser with shields, stamina, and crushing blows.",
+            Self::Ranger => "Fast skirmisher with pressure shots and marks.",
+            Self::Mage => "Elemental caster with strong mana scaling and control.",
+            Self::Rogue => "Precise striker built around bleed, evasion, and tempo.",
+            Self::Paladin => "Armored zealot with holy strikes and self-sustain.",
+            Self::Cleric => "Support caster with healing, cleansing, and radiant damage.",
         }
     }
 
     pub fn primary_stats(self) -> &'static str {
         match self {
-            Class::Warrior => "STR, CON",
-            Class::Ranger  => "DEX, WIS",
-            Class::Mage    => "INT, WIS",
-            Class::Rogue   => "DEX, CHA",
-            Class::Paladin => "STR, CHA",
-            Class::Cleric  => "WIS, CHA",
+            Self::Warrior => "STR, CON",
+            Self::Ranger => "DEX, WIS",
+            Self::Mage => "INT, WIS",
+            Self::Rogue => "DEX, CHA",
+            Self::Paladin => "STR, CHA",
+            Self::Cleric => "WIS, CHA",
         }
+    }
+
+    pub fn from_name(name: &str) -> Self {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|class| class.name() == name)
+            .unwrap_or(Self::Warrior)
     }
 }
 
-// ── Gear ──────────────────────────────────────────────────────────────────────
+#[derive(Debug, Clone)]
+pub struct CharacterClassProgression {
+    pub class: Class,
+    pub unlocks: Vec<(i32, &'static str)>,
+}
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GearPackage {
     Melee,
     Ranged,
@@ -451,26 +569,24 @@ impl GearPackage {
 
     pub fn name(self) -> &'static str {
         match self {
-            GearPackage::Melee   => "Melee Kit",
-            GearPackage::Ranged  => "Ranged Kit",
-            GearPackage::Arcane  => "Arcane Kit",
-            GearPackage::Stealth => "Stealth Kit",
+            Self::Melee => "Melee Kit",
+            Self::Ranged => "Ranged Kit",
+            Self::Arcane => "Arcane Kit",
+            Self::Stealth => "Stealth Kit",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            GearPackage::Melee   => "Stand your ground and fight face-to-face.",
-            GearPackage::Ranged  => "Strike from distance before they close in.",
-            GearPackage::Arcane  => "Channel the arcane to overwhelm your foes.",
-            GearPackage::Stealth => "Stay hidden, strike fast, leave no trace.",
+            Self::Melee => "Shield and steel for holding the line.",
+            Self::Ranged => "Distance, movement, and controlled shots.",
+            Self::Arcane => "Focus, robes, and mana-forward combat tools.",
+            Self::Stealth => "Light gear and quick kills from bad angles.",
         }
     }
 }
 
-// ── Creation Step ─────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreationStep {
     Name,
     Race,
@@ -481,39 +597,6 @@ pub enum CreationStep {
 }
 
 impl CreationStep {
-    pub fn next(self) -> Self {
-        match self {
-            Self::Name    => Self::Race,
-            Self::Race    => Self::Class,
-            Self::Class   => Self::Stats,
-            Self::Stats   => Self::Gear,
-            Self::Gear    => Self::Confirm,
-            Self::Confirm => Self::Confirm,
-        }
-    }
-
-    pub fn prev(self) -> Self {
-        match self {
-            Self::Name    => Self::Name,
-            Self::Race    => Self::Name,
-            Self::Class   => Self::Race,
-            Self::Stats   => Self::Class,
-            Self::Gear    => Self::Stats,
-            Self::Confirm => Self::Gear,
-        }
-    }
-
-    pub fn index(self) -> usize {
-        match self {
-            Self::Name    => 0,
-            Self::Race    => 1,
-            Self::Class   => 2,
-            Self::Stats   => 3,
-            Self::Gear    => 4,
-            Self::Confirm => 5,
-        }
-    }
-
     pub const ALL: [CreationStep; 6] = [
         Self::Name,
         Self::Race,
@@ -523,53 +606,191 @@ impl CreationStep {
         Self::Confirm,
     ];
 
+    pub fn next(self) -> Self {
+        match self {
+            Self::Name => Self::Race,
+            Self::Race => Self::Class,
+            Self::Class => Self::Stats,
+            Self::Stats => Self::Gear,
+            Self::Gear => Self::Confirm,
+            Self::Confirm => Self::Confirm,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Name => Self::Name,
+            Self::Race => Self::Name,
+            Self::Class => Self::Race,
+            Self::Stats => Self::Class,
+            Self::Gear => Self::Stats,
+            Self::Confirm => Self::Gear,
+        }
+    }
+
+    pub fn index(self) -> usize {
+        match self {
+            Self::Name => 0,
+            Self::Race => 1,
+            Self::Class => 2,
+            Self::Stats => 3,
+            Self::Gear => 4,
+            Self::Confirm => 5,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
-            Self::Name    => "Name",
-            Self::Race    => "Race",
-            Self::Class   => "Class",
-            Self::Stats   => "Stats",
-            Self::Gear    => "Gear",
+            Self::Name => "Name",
+            Self::Race => "Race",
+            Self::Class => "Class",
+            Self::Stats => "Stats",
+            Self::Gear => "Gear",
             Self::Confirm => "Confirm",
         }
     }
 }
 
-// ── SavedCharacter ────────────────────────────────────────────────────────────
-
-/// A fully persisted character loaded from the database.
 #[derive(Debug, Clone)]
 pub struct SavedCharacter {
-    pub id:       i64,
-    pub name:     String,
-    pub race:     String,
-    pub class:    String,
-    pub gear:     String,
-    pub level:    i32,
-    pub xp:       i32,
-    pub hp:       i32,
-    pub max_hp:   i32,
-    pub gold:     i32,
-    /// The 6 core stats in `MajorSkill::ALL` order.
-    pub major_skills: Vec<MajorSkillData>,
-    /// The 12 non-combat skills in `MinorSkill::ALL` order.
-    pub minor_skills: Vec<MinorSkillData>,
+    pub id: i64,
+    pub name: String,
+    pub race: Race,
+    pub class: Class,
+    pub gear: String,
+    pub level: i32,
+    pub xp: i32,
+    pub gold: i32,
+    pub unspent_stat_points: i32,
+    pub stats: Stats,
+    pub resources: ResourcePool,
+    pub proficiencies: Vec<ProficiencyData>,
+    pub known_abilities: Vec<KnownAbility>,
 }
 
 impl SavedCharacter {
-    /// Convenience getter — returns the point value for a major skill.
     pub fn major_skill(&self, kind: MajorSkill) -> i32 {
-        self.major_skills
-            .iter()
-            .find(|s| s.kind == kind)
-            .map(|s| s.points)
-            .unwrap_or(5)
+        self.stats.by_skill(kind)
+    }
+
+    pub fn derived_stats(&self, equipment_armor: i32, _attack_bonus: i32, spell_power_bonus: i32, crit_bonus: i32, initiative_bonus: i32) -> DerivedStats {
+        let dex = self.stats.modifier(MajorSkill::Dexterity);
+        let wis = self.stats.modifier(MajorSkill::Wisdom);
+        let int = self.stats.modifier(MajorSkill::Intelligence);
+        let cha = self.stats.modifier(MajorSkill::Charisma);
+        DerivedStats {
+            defense: 10 + equipment_armor + dex + wis.max(0) / 2,
+            initiative: dex + initiative_bonus + self.level / 3,
+            crit_chance: 5 + crit_bonus + dex.max(0) * 2 + cha.max(0),
+            dodge: dex * 2 + self.level / 2,
+            spell_power: int * 2 + spell_power_bonus + self.level,
+            healing_power: wis * 2 + cha.max(0) + self.level / 2,
+        }
+    }
+
+    pub fn apply_xp_gain(&mut self, gained_xp: i32) -> LevelUpReward {
+        let before_level = self.level;
+        self.xp += gained_xp.max(0);
+        let new_level = level_from_xp(self.xp);
+        self.level = new_level;
+
+        if new_level <= before_level {
+            return LevelUpReward {
+                levels_gained: 0,
+                attribute_points_awarded: 0,
+                new_ability_ids: vec![],
+                hp_gain: 0,
+                mana_gain: 0,
+                stamina_gain: 0,
+            };
+        }
+
+        let levels_gained = new_level - before_level;
+        let hp_gain = 8 * levels_gained + self.stats.modifier(MajorSkill::Constitution).max(1) * levels_gained;
+        let mana_gain = mana_growth(self.class) * levels_gained;
+        let stamina_gain = stamina_growth(self.class) * levels_gained;
+        self.resources.max_hp += hp_gain;
+        self.resources.max_mana += mana_gain;
+        self.resources.max_stamina += stamina_gain;
+        self.resources.hp = self.resources.max_hp;
+        self.resources.mana = self.resources.max_mana;
+        self.resources.stamina = self.resources.max_stamina;
+
+        let stat_points = (before_level + 1..=new_level)
+            .filter(|level| level % 2 == 0)
+            .count() as i32;
+        self.unspent_stat_points += stat_points;
+
+        let mut unlocked = vec![];
+        for (_, ability_id) in class_progression(self.class).unlocks {
+            if self
+                .known_abilities
+                .iter()
+                .any(|known| known.ability_id == ability_id)
+            {
+                continue;
+            }
+            if ability_unlock_level(self.class, ability_id) <= new_level {
+                self.known_abilities.push(KnownAbility {
+                    ability_id: ability_id.to_string(),
+                    rank: 1,
+                    unlocked: true,
+                    cooldown_remaining: 0,
+                });
+                unlocked.push(ability_id.to_string());
+            }
+        }
+
+        LevelUpReward {
+            levels_gained,
+            attribute_points_awarded: stat_points,
+            new_ability_ids: unlocked,
+            hp_gain,
+            mana_gain,
+            stamina_gain,
+        }
     }
 }
 
-// ── CharacterCreation state ───────────────────────────────────────────────────
+pub fn mana_growth(class: Class) -> i32 {
+    match class {
+        Class::Mage => 7,
+        Class::Cleric => 6,
+        Class::Paladin => 3,
+        _ => 2,
+    }
+}
 
-pub const STAT_POINTS: i32 = 6;
+pub fn stamina_growth(class: Class) -> i32 {
+    match class {
+        Class::Warrior => 6,
+        Class::Ranger => 5,
+        Class::Rogue => 5,
+        Class::Paladin => 4,
+        _ => 2,
+    }
+}
+
+pub fn class_progression(class: Class) -> CharacterClassProgression {
+    let unlocks = match class {
+        Class::Warrior => vec![(1, "guard_stance"), (2, "cleaving_blow"), (4, "shield_bash")],
+        Class::Ranger => vec![(1, "hunters_mark"), (2, "volley"), (4, "crippling_shot")],
+        Class::Mage => vec![(1, "ember_burst"), (2, "frost_lance"), (4, "storm_surge")],
+        Class::Rogue => vec![(1, "dirty_cut"), (2, "evasion"), (4, "shadow_flurry")],
+        Class::Paladin => vec![(1, "radiant_slam"), (2, "vow_guard"), (4, "lay_on_hands")],
+        Class::Cleric => vec![(1, "healing_prayer"), (2, "smite_undead"), (4, "purge")],
+    };
+    CharacterClassProgression { class, unlocks }
+}
+
+pub fn ability_unlock_level(class: Class, ability_id: &str) -> i32 {
+    class_progression(class)
+        .unlocks
+        .into_iter()
+        .find(|(_, id)| *id == ability_id)
+        .map(|(level, _)| level)
+        .unwrap_or(99)
+}
 
 #[derive(Debug)]
 pub struct CharacterCreation {
@@ -611,17 +832,16 @@ impl CharacterCreation {
         GearPackage::ALL[self.gear_cursor]
     }
 
-    /// Final stats = base allocation + race bonuses.
     pub fn final_stats(&self) -> Stats {
         self.base_stats.add_bonuses(&self.selected_race().stat_bonuses())
     }
 
     pub fn adjust_stat(&mut self, dir: i32) {
         let current = self.base_stats.get(self.stat_cursor);
-        if dir > 0 && self.points_remaining > 0 && current < 10 {
+        if dir > 0 && self.points_remaining > 0 && current < 13 {
             self.base_stats.add(self.stat_cursor, 1);
             self.points_remaining -= 1;
-        } else if dir < 0 && current > 5 {
+        } else if dir < 0 && current > 8 {
             self.base_stats.add(self.stat_cursor, -1);
             self.points_remaining += 1;
         }

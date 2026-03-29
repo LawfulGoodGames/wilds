@@ -6,10 +6,11 @@ use ratatui::{
     widgets::{Block, BorderType, Paragraph, Widget},
 };
 
-use crate::app::{App, MenuItem, Screen};
+use crate::app::{active_level_progress, active_xp_to_next, App, CharacterTab, MenuItem, Screen, TownAction};
 use crate::character::{Class, CreationStep, GearPackage, Race, STAT_FULL, STAT_LABELS};
-use crate::combat::{AttackKind, Turn};
-use crate::inventory::{find_def, gear_package_items, EquipSlot, ItemKind};
+use crate::combat::{ActionTab, TurnRef};
+use crate::inventory::{find_def, gear_package_items, EquipSlot};
+use crate::world::{area_def, quest_def, vendor_def, AreaId, QuestId, VendorId};
 
 const TITLE: &str = r"
  __        _____ _     ____  ____
@@ -19,47 +20,45 @@ const TITLE: &str = r"
     \_/\_/  |___|_____|____/|____/
 ";
 
-// ── Palette ───────────────────────────────────────────────────────────────────
-
-const GOLD:      Color = Color::Yellow;
-const DIM:       Color = Color::Gray;
-const TEXT:      Color = Color::White;
+const GOLD: Color = Color::Yellow;
+const DIM: Color = Color::Gray;
+const TEXT: Color = Color::White;
 const HIGHLIGHT: Color = Color::Black;
 
 fn selected_style() -> Style {
     Style::default().fg(HIGHLIGHT).bg(GOLD).add_modifier(Modifier::BOLD)
 }
+
 fn normal_style() -> Style {
     Style::default().fg(TEXT)
 }
+
 fn dim_style() -> Style {
     Style::default().fg(DIM)
 }
 
-// ── Widget impl ───────────────────────────────────────────────────────────────
-
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         match self.screen {
-            Screen::MainMenu         => render_main_menu(self, area, buf),
+            Screen::MainMenu => render_main_menu(self, area, buf),
             Screen::CharacterCreation => render_character_creation(self, area, buf),
-            Screen::Options          => render_options(self, area, buf),
-            Screen::LoadGame         => render_load_game(self, area, buf),
-            Screen::Skills           => render_skills(self, area, buf),
-            Screen::Inventory        => render_inventory(self, area, buf),
-            Screen::Equipment        => render_equipment(self, area, buf),
-            Screen::InGame           => render_in_game(self, area, buf),
-            Screen::Combat           => render_combat(self, area, buf),
+            Screen::LoadGame => render_load_game(self, area, buf),
+            Screen::Options => render_options(self, area, buf),
+            Screen::Town => render_town(self, area, buf),
+            Screen::Explore => render_explore(self, area, buf),
+            Screen::CharacterSheet => render_character_sheet(self, area, buf),
+            Screen::Inventory => render_inventory(self, area, buf),
+            Screen::Equipment => render_equipment(self, area, buf),
+            Screen::Quests => render_quests(self, area, buf),
+            Screen::Shop => render_shop(self, area, buf),
+            Screen::Dialogue => render_dialogue(self, area, buf),
+            Screen::Combat => render_combat(self, area, buf),
         }
     }
 }
 
-// ── Main Menu ─────────────────────────────────────────────────────────────────
-
 fn render_main_menu(app: &App, area: Rect, buf: &mut Buffer) {
-    let outer = Block::bordered()
-        .border_type(BorderType::Rounded)
-        .style(dim_style());
+    let outer = Block::bordered().border_type(BorderType::Rounded).style(dim_style());
     let inner = outer.inner(area);
     outer.render(area, buf);
 
@@ -68,34 +67,28 @@ fn render_main_menu(app: &App, area: Rect, buf: &mut Buffer) {
         Constraint::Length(1),
         Constraint::Min(4),
         Constraint::Length(2),
-    ]).split(inner);
+    ])
+    .split(inner);
 
     Paragraph::new(TITLE)
         .style(Style::default().fg(GOLD))
         .alignment(Alignment::Center)
         .render(chunks[0], buf);
 
-    let lines: Vec<Line> = MenuItem::ALL.iter().enumerate().map(|(i, item)| {
-        if i == app.selected {
-            Line::from(vec![
-                Span::raw("  "),
-                Span::styled(format!("> {} <", item.label()), selected_style()),
-                Span::raw("  "),
-            ])
-        } else {
-            Line::from(Span::styled(item.label(), normal_style()))
-        }
-    }).collect();
-
+    let lines = MenuItem::ALL
+        .iter()
+        .enumerate()
+        .map(|(idx, item)| {
+            if idx == app.selected {
+                Line::from(Span::styled(format!("> {} <", item.label()), selected_style()))
+            } else {
+                Line::from(Span::styled(item.label(), normal_style()))
+            }
+        })
+        .collect::<Vec<_>>();
     Paragraph::new(lines).alignment(Alignment::Center).render(chunks[2], buf);
-
-    Paragraph::new("↑ ↓ / j k  navigate    Enter  select    q  quit")
-        .style(dim_style())
-        .alignment(Alignment::Center)
-        .render(chunks[3], buf);
+    hint_bar("↑ ↓ navigate    Enter select    q quit", chunks[3], buf);
 }
-
-// ── Character Creation ────────────────────────────────────────────────────────
 
 fn render_character_creation(app: &App, area: Rect, buf: &mut Buffer) {
     let outer = Block::bordered()
@@ -107,96 +100,77 @@ fn render_character_creation(app: &App, area: Rect, buf: &mut Buffer) {
     outer.render(area, buf);
 
     let chunks = Layout::vertical([
-        Constraint::Length(1), // step progress bar
-        Constraint::Length(1), // spacer
-        Constraint::Min(1),    // content
-        Constraint::Length(2), // hints
-    ]).split(inner);
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(1),
+        Constraint::Length(2),
+    ])
+    .split(inner);
 
     render_step_bar(app.creation.step, chunks[0], buf);
-
     match app.creation.step {
-        CreationStep::Name    => render_creation_name(app, chunks[2], chunks[3], buf),
-        CreationStep::Race    => render_creation_race(app, chunks[2], chunks[3], buf),
-        CreationStep::Class   => render_creation_class(app, chunks[2], chunks[3], buf),
-        CreationStep::Stats   => render_creation_stats(app, chunks[2], chunks[3], buf),
-        CreationStep::Gear    => render_creation_gear(app, chunks[2], chunks[3], buf),
+        CreationStep::Name => render_creation_name(app, chunks[2], chunks[3], buf),
+        CreationStep::Race => render_creation_race(app, chunks[2], chunks[3], buf),
+        CreationStep::Class => render_creation_class(app, chunks[2], chunks[3], buf),
+        CreationStep::Stats => render_creation_stats(app, chunks[2], chunks[3], buf),
+        CreationStep::Gear => render_creation_gear(app, chunks[2], chunks[3], buf),
         CreationStep::Confirm => render_creation_confirm(app, chunks[2], chunks[3], buf),
     }
 }
 
 fn render_step_bar(current: CreationStep, area: Rect, buf: &mut Buffer) {
-    let steps: Vec<Span> = CreationStep::ALL.iter().enumerate().flat_map(|(i, step)| {
-        let label = if *step == current {
-            Span::styled(format!("[{}]", step.label()), selected_style())
-        } else if step.index() < current.index() {
-            Span::styled(step.label().to_string(), Style::default().fg(Color::Green))
-        } else {
-            Span::styled(step.label().to_string(), dim_style())
-        };
-        if i < CreationStep::ALL.len() - 1 {
-            vec![label, Span::styled(" > ", dim_style())]
-        } else {
-            vec![label]
-        }
-    }).collect();
-
-    Paragraph::new(Line::from(steps))
-        .alignment(Alignment::Center)
-        .render(area, buf);
+    let spans = CreationStep::ALL
+        .iter()
+        .enumerate()
+        .flat_map(|(idx, step)| {
+            let label = if *step == current {
+                Span::styled(format!("[{}]", step.label()), selected_style())
+            } else if step.index() < current.index() {
+                Span::styled(step.label().to_string(), Style::default().fg(Color::Green))
+            } else {
+                Span::styled(step.label().to_string(), dim_style())
+            };
+            if idx + 1 < CreationStep::ALL.len() {
+                vec![label, Span::styled(" > ", dim_style())]
+            } else {
+                vec![label]
+            }
+        })
+        .collect::<Vec<_>>();
+    Paragraph::new(Line::from(spans)).alignment(Alignment::Center).render(area, buf);
 }
 
-// Name ─────────────────────────────────────────────────────────────────────────
-
 fn render_creation_name(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) {
-    let chunks = Layout::vertical([
-        Constraint::Min(1),
-        Constraint::Length(3),
-        Constraint::Min(1),
-    ]).split(content);
-
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(3), Constraint::Min(1)]).split(content);
     let display = if app.creation.name.is_empty() {
         Span::styled("Enter your name...", dim_style())
     } else {
         Span::styled(format!("{}_", app.creation.name), Style::default().fg(GOLD).add_modifier(Modifier::BOLD))
     };
-
-    let input_block = Block::bordered()
-        .title(" Your Name ")
-        .title_alignment(Alignment::Center)
-        .border_type(BorderType::Rounded)
-        .style(Style::default().fg(GOLD));
-
     Paragraph::new(Line::from(display))
-        .block(input_block)
+        .block(Block::bordered().title(" Your Name ").border_type(BorderType::Rounded).style(Style::default().fg(GOLD)))
         .alignment(Alignment::Center)
         .render(chunks[1], buf);
-
-    hint_bar("Type your character's name    Enter  continue    Esc  back", hint, buf);
+    hint_bar("Type name    Enter continue    Esc back", hint, buf);
 }
 
-// Race ─────────────────────────────────────────────────────────────────────────
-
 fn render_creation_race(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) {
-    let chunks = Layout::horizontal([
-        Constraint::Percentage(40),
-        Constraint::Percentage(60),
-    ]).split(content);
-
-    // Left: race list
-    let list_lines: Vec<Line> = Race::ALL.iter().enumerate().map(|(i, race)| {
-        if i == app.creation.race_cursor {
-            Line::from(Span::styled(format!("▶ {}", race.name()), selected_style()))
-        } else {
-            Line::from(Span::styled(format!("  {}", race.name()), normal_style()))
-        }
-    }).collect();
-    Paragraph::new(list_lines)
+    let chunks = Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).split(content);
+    let list = Race::ALL
+        .iter()
+        .enumerate()
+        .map(|(idx, race)| {
+            if idx == app.creation.race_cursor {
+                Line::from(Span::styled(format!("▶ {}", race.name()), selected_style()))
+            } else {
+                Line::from(Span::styled(format!("  {}", race.name()), normal_style()))
+            }
+        })
+        .collect::<Vec<_>>();
+    Paragraph::new(list)
         .block(Block::bordered().title(" Race ").border_type(BorderType::Rounded).style(dim_style()))
         .render(chunks[0], buf);
-
-    // Right: description + bonuses
-    let race = Race::ALL[app.creation.race_cursor];
+    let race = app.creation.selected_race();
     let detail = vec![
         Line::from(Span::styled(race.name(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
         Line::from(""),
@@ -211,30 +185,26 @@ fn render_creation_race(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) 
         .block(Block::bordered().title(" Details ").border_type(BorderType::Rounded).style(dim_style()))
         .wrap(ratatui::widgets::Wrap { trim: true })
         .render(chunks[1], buf);
-
-    hint_bar("↑ ↓ / j k  navigate    Enter  confirm    Esc  back", hint, buf);
+    hint_bar("↑ ↓ navigate    Enter confirm    Esc back", hint, buf);
 }
 
-// Class ────────────────────────────────────────────────────────────────────────
-
 fn render_creation_class(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) {
-    let chunks = Layout::horizontal([
-        Constraint::Percentage(40),
-        Constraint::Percentage(60),
-    ]).split(content);
-
-    let list_lines: Vec<Line> = Class::ALL.iter().enumerate().map(|(i, class)| {
-        if i == app.creation.class_cursor {
-            Line::from(Span::styled(format!("▶ {}", class.name()), selected_style()))
-        } else {
-            Line::from(Span::styled(format!("  {}", class.name()), normal_style()))
-        }
-    }).collect();
-    Paragraph::new(list_lines)
+    let chunks = Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).split(content);
+    let list = Class::ALL
+        .iter()
+        .enumerate()
+        .map(|(idx, class)| {
+            if idx == app.creation.class_cursor {
+                Line::from(Span::styled(format!("▶ {}", class.name()), selected_style()))
+            } else {
+                Line::from(Span::styled(format!("  {}", class.name()), normal_style()))
+            }
+        })
+        .collect::<Vec<_>>();
+    Paragraph::new(list)
         .block(Block::bordered().title(" Class ").border_type(BorderType::Rounded).style(dim_style()))
         .render(chunks[0], buf);
-
-    let class = Class::ALL[app.creation.class_cursor];
+    let class = app.creation.selected_class();
     let detail = vec![
         Line::from(Span::styled(class.name(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
         Line::from(""),
@@ -249,249 +219,127 @@ fn render_creation_class(app: &App, content: Rect, hint: Rect, buf: &mut Buffer)
         .block(Block::bordered().title(" Details ").border_type(BorderType::Rounded).style(dim_style()))
         .wrap(ratatui::widgets::Wrap { trim: true })
         .render(chunks[1], buf);
-
-    hint_bar("↑ ↓ / j k  navigate    Enter  confirm    Esc  back", hint, buf);
+    hint_bar("↑ ↓ navigate    Enter confirm    Esc back", hint, buf);
 }
-
-// Stats ────────────────────────────────────────────────────────────────────────
 
 fn render_creation_stats(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) {
     let c = &app.creation;
-    let race_bonuses = c.selected_race().stat_bonuses();
-
-    let chunks = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Min(1),
-    ]).split(content);
-
-    // Points remaining
-    let pts_color = if c.points_remaining == 0 { Color::Green } else { GOLD };
+    let bonuses = c.selected_race().stat_bonuses();
+    let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(content);
     Paragraph::new(Line::from(vec![
         Span::styled("Points remaining: ", dim_style()),
-        Span::styled(c.points_remaining.to_string(), Style::default().fg(pts_color).add_modifier(Modifier::BOLD)),
-        Span::styled("  (max 10 per stat)", dim_style()),
-    ])).alignment(Alignment::Center).render(chunks[0], buf);
+        Span::styled(c.points_remaining.to_string(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+        Span::styled("  (start at 8, cap 13)", dim_style()),
+    ]))
+    .alignment(Alignment::Center)
+    .render(chunks[0], buf);
 
-    // Stat rows
-    let stat_lines: Vec<Line> = (0..6).map(|i| {
-        let base  = c.base_stats.get(i);
-        let bonus = race_bonuses.get(i);
-        let final_val = base + bonus;
-        let selected = i == c.stat_cursor;
-
-        let label_style = if selected { selected_style() } else { normal_style() };
-        let bar = stat_bar(base - 5, 5); // allocated points (0-5)
-
-        let mut spans = vec![
-            Span::styled(format!("  {:3}  {:<14}", STAT_LABELS[i], STAT_FULL[i]), label_style),
-            Span::styled(format!(" {:2} ", base), label_style),
-            Span::styled(bar, Style::default().fg(Color::Cyan)),
-        ];
-
-        if bonus > 0 {
-            spans.push(Span::styled(format!(" +{bonus} "), Style::default().fg(Color::Green)));
-            spans.push(Span::styled(format!("= {final_val}"), Style::default().fg(GOLD).add_modifier(Modifier::BOLD)));
-        }
-
-        if selected {
-            let can_inc = c.points_remaining > 0 && base < 10;
-            let can_dec = base > 5;
-            spans.push(Span::raw("  "));
-            if can_dec { spans.push(Span::styled("◄", dim_style())); } else { spans.push(Span::raw(" ")); }
-            if can_inc { spans.push(Span::styled("►", dim_style())); }
-        }
-
-        Line::from(spans)
-    }).collect();
-
-    Paragraph::new(stat_lines)
+    let lines = (0..6)
+        .map(|idx| {
+            let base = c.base_stats.get(idx);
+            let bonus = bonuses.get(idx);
+            let total = base + bonus;
+            let label_style = if idx == c.stat_cursor { selected_style() } else { normal_style() };
+            let mut spans = vec![
+                Span::styled(format!("  {:<3} {:<13} {:>2}", STAT_LABELS[idx], STAT_FULL[idx], base), label_style),
+                Span::styled(stat_bar(base - 8, 5), Style::default().fg(Color::Cyan)),
+            ];
+            if bonus > 0 {
+                spans.push(Span::styled(format!("  +{bonus} = {total}"), Style::default().fg(Color::Green)));
+            }
+            Line::from(spans)
+        })
+        .collect::<Vec<_>>();
+    Paragraph::new(lines)
         .block(Block::bordered().title(" Allocate Stats ").border_type(BorderType::Rounded).style(dim_style()))
-        .render(chunks[2], buf);
-
-    hint_bar("↑ ↓  navigate    ◄ ► / h l  adjust    Enter  continue    Esc  back", hint, buf);
+        .render(chunks[1], buf);
+    hint_bar("↑ ↓ navigate    ← → adjust    Enter continue    Esc back", hint, buf);
 }
-
-fn stat_bar(allocated: i32, max: i32) -> String {
-    let filled = allocated.max(0) as usize;
-    let empty  = (max - allocated.max(0)) as usize;
-    format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
-}
-
-// Gear ─────────────────────────────────────────────────────────────────────────
 
 fn render_creation_gear(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) {
-    let chunks = Layout::horizontal([
-        Constraint::Percentage(40),
-        Constraint::Percentage(60),
-    ]).split(content);
-
-    let list_lines: Vec<Line> = GearPackage::ALL.iter().enumerate().map(|(i, pkg)| {
-        if i == app.creation.gear_cursor {
-            Line::from(Span::styled(format!("▶ {}", pkg.name()), selected_style()))
-        } else {
-            Line::from(Span::styled(format!("  {}", pkg.name()), normal_style()))
-        }
-    }).collect();
-    Paragraph::new(list_lines)
+    let chunks = Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).split(content);
+    let list = GearPackage::ALL
+        .iter()
+        .enumerate()
+        .map(|(idx, gear)| {
+            if idx == app.creation.gear_cursor {
+                Line::from(Span::styled(format!("▶ {}", gear.name()), selected_style()))
+            } else {
+                Line::from(Span::styled(format!("  {}", gear.name()), normal_style()))
+            }
+        })
+        .collect::<Vec<_>>();
+    Paragraph::new(list)
         .block(Block::bordered().title(" Starting Gear ").border_type(BorderType::Rounded).style(dim_style()))
         .render(chunks[0], buf);
-
-    let pkg = GearPackage::ALL[app.creation.gear_cursor];
+    let gear = app.creation.selected_gear();
     let mut detail = vec![
-        Line::from(Span::styled(pkg.name(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(gear.name(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
         Line::from(""),
-        Line::from(Span::styled(pkg.description(), normal_style())),
-        Line::from(""),
-        Line::from(Span::styled("Will be equipped:", dim_style())),
+        Line::from(Span::styled(gear.description(), normal_style())),
         Line::from(""),
     ];
-    for (slot_key, item_type) in gear_package_items(pkg.name()) {
+    for (slot_key, item_type) in gear_package_items(gear.name()) {
         if let Some(def) = find_def(item_type) {
-            let slot_label = EquipSlot::ALL
-                .iter()
-                .find(|s| s.db_key() == *slot_key)
-                .map(|s| s.label())
-                .unwrap_or(slot_key);
-            let extra = if !def.attacks.is_empty() {
-                let names: Vec<&str> = def.attacks.iter().map(|a| a.name).collect();
-                format!("  → {}", names.join(", "))
-            } else if def.defense_bonus > 0 {
-                format!("  +{} def", def.defense_bonus)
-            } else {
-                String::new()
-            };
+            let slot = EquipSlot::ALL.iter().find(|slot| slot.db_key() == *slot_key).copied();
             detail.push(Line::from(vec![
-                Span::styled(format!("  {:<8}", slot_label), dim_style()),
-                Span::styled(def.name, Style::default().fg(Color::Cyan)),
-                Span::styled(extra, Style::default().fg(Color::Green)),
+                Span::styled(format!("{}: ", slot.map(|slot| slot.label()).unwrap_or("Gear")), dim_style()),
+                Span::styled(def.name, normal_style()),
             ]));
         }
     }
     Paragraph::new(detail)
         .block(Block::bordered().title(" Contents ").border_type(BorderType::Rounded).style(dim_style()))
-        .wrap(ratatui::widgets::Wrap { trim: true })
         .render(chunks[1], buf);
-
-    hint_bar("↑ ↓ / j k  navigate    Enter  confirm    Esc  back", hint, buf);
+    hint_bar("↑ ↓ navigate    Enter confirm    Esc back", hint, buf);
 }
-
-// Confirm ──────────────────────────────────────────────────────────────────────
 
 fn render_creation_confirm(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) {
-    let c = &app.creation;
-    let final_stats = c.final_stats();
-    let race = c.selected_race();
-    let class = c.selected_class();
-    let gear = c.selected_gear();
-
+    let stats = app.creation.final_stats();
     let lines = vec![
-        Line::from(vec![
-            Span::styled("  Name:   ", dim_style()),
-            Span::styled(&c.name, Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-        ]),
+        Line::from(vec![Span::styled("Name: ", dim_style()), Span::styled(&app.creation.name, Style::default().fg(GOLD))]),
+        Line::from(vec![Span::styled("Race: ", dim_style()), Span::styled(app.creation.selected_race().name(), normal_style())]),
+        Line::from(vec![Span::styled("Class: ", dim_style()), Span::styled(app.creation.selected_class().name(), normal_style())]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("  Race:   ", dim_style()),
-            Span::styled(race.name(), normal_style()),
-            Span::styled(format!("  ({})", race.bonus_label()), Style::default().fg(Color::Green)),
-        ]),
-        Line::from(vec![
-            Span::styled("  Class:  ", dim_style()),
-            Span::styled(class.name(), normal_style()),
-            Span::styled(format!("  ({})", class.primary_stats()), Style::default().fg(Color::Cyan)),
-        ]),
+        Line::from(format!("STR {}  DEX {}  CON {}", stats.strength, stats.dexterity, stats.constitution)),
+        Line::from(format!("INT {}  WIS {}  CHA {}", stats.intelligence, stats.wisdom, stats.charisma)),
         Line::from(""),
-        Line::from(Span::styled("  Final Stats:", dim_style())),
-        Line::from(vec![
-            Span::raw("  "),
-            stat_chip("STR", final_stats.strength),
-            Span::raw("  "),
-            stat_chip("DEX", final_stats.dexterity),
-            Span::raw("  "),
-            stat_chip("CON", final_stats.constitution),
-            Span::raw("  "),
-            stat_chip("INT", final_stats.intelligence),
-            Span::raw("  "),
-            stat_chip("WIS", final_stats.wisdom),
-            Span::raw("  "),
-            stat_chip("CHA", final_stats.charisma),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  Gear:   ", dim_style()),
-            Span::styled(gear.name(), normal_style()),
-        ]),
-        Line::from(vec![
-            Span::styled("           ", dim_style()),
-            Span::styled(
-                gear_package_items(gear.name())
-                    .iter()
-                    .filter_map(|(_, t)| find_def(t).map(|d| d.name))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                Style::default().fg(Color::Cyan),
-            ),
-        ]),
+        Line::from(vec![Span::styled("Gear: ", dim_style()), Span::styled(app.creation.selected_gear().name(), normal_style())]),
     ];
-
     Paragraph::new(lines)
-        .block(Block::bordered().title(" Confirm Character ").border_type(BorderType::Rounded).style(Style::default().fg(GOLD)))
-        .wrap(ratatui::widgets::Wrap { trim: false })
+        .block(Block::bordered().title(" Confirm ").border_type(BorderType::Rounded).style(Style::default().fg(GOLD)))
         .render(content, buf);
-
-    hint_bar("Enter  begin your journey    Esc  go back", hint, buf);
+    hint_bar("Enter begin adventure    Esc back", hint, buf);
 }
-
-fn stat_chip(label: &str, val: i32) -> Span<'static> {
-    Span::styled(
-        format!("{label}:{val:2}"),
-        Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
-    )
-}
-
-// ── Options ───────────────────────────────────────────────────────────────────
 
 fn render_options(app: &App, area: Rect, buf: &mut Buffer) {
-    let block = Block::bordered()
+    let outer = Block::bordered()
         .title(" Options ")
         .title_alignment(Alignment::Center)
         .border_type(BorderType::Rounded)
         .style(Style::default().fg(GOLD));
-    let inner = block.inner(area);
-    block.render(area, buf);
-
+    let inner = outer.inner(area);
+    outer.render(area, buf);
     let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
-
-    let s = &app.settings;
-    let entries: [(&str, String); 6] = [
-        ("Sound Effects", bool_label(s.sound_effects).to_string()),
-        ("Music Volume",  format!("{}%", s.music_volume)),
-        ("Font Size",     s.font_size.label().to_string()),
-        ("Color Theme",   s.color_theme.label().to_string()),
-        ("Show Hints",    bool_label(s.show_hints).to_string()),
-        ("Difficulty",    s.difficulty.label().to_string()),
+    let settings = &app.settings;
+    let entries = [
+        ("Sound Effects", if settings.sound_effects { "On".to_string() } else { "Off".to_string() }),
+        ("Music Volume", format!("{}%", settings.music_volume)),
+        ("Font Size", settings.font_size.label().to_string()),
+        ("Color Theme", settings.color_theme.label().to_string()),
+        ("Show Hints", if settings.show_hints { "On".to_string() } else { "Off".to_string() }),
+        ("Difficulty", settings.difficulty.label().to_string()),
     ];
-
-    let lines: Vec<Line> = entries.iter().enumerate().map(|(i, (label, value))| {
-        let sel = i == app.options_cursor;
-        let row = if sel { selected_style() } else { normal_style() };
-        let val_span = if sel {
-            Span::styled(format!(" ◄ {value} ► "), row)
-        } else {
-            Span::styled(format!("   {value}   "), row)
-        };
+    let lines = entries.iter().enumerate().map(|(idx, (label, value))| {
+        let style = if idx == app.options_cursor { selected_style() } else { normal_style() };
         Line::from(vec![
-            Span::styled(format!("  {label:<20}", label = label), row),
-            val_span,
+            Span::styled(format!("{label:<20}"), style),
+            Span::styled(format!("{value}"), style),
         ])
-    }).collect();
-
+    }).collect::<Vec<_>>();
     Paragraph::new(lines).render(chunks[0], buf);
-    hint_bar("↑ ↓ / j k  navigate    ◄ ► / h l  change    Esc  save & back", chunks[1], buf);
+    hint_bar("↑ ↓ navigate    ← → change    Esc save & back", chunks[1], buf);
 }
-
-// ── Load Game ─────────────────────────────────────────────────────────────────
 
 fn render_load_game(app: &App, area: Rect, buf: &mut Buffer) {
     let outer = Block::bordered()
@@ -501,95 +349,44 @@ fn render_load_game(app: &App, area: Rect, buf: &mut Buffer) {
         .style(Style::default().fg(GOLD));
     let inner = outer.inner(area);
     outer.render(area, buf);
-
     if app.saved_characters.is_empty() {
-        let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
-        Paragraph::new(vec![
-            Line::from(""),
-            Line::from(Span::styled("No saved characters found.", Style::default().fg(GOLD))),
-            Line::from(""),
-            Line::from(Span::styled("Start a New Game to create your first character.", dim_style())),
-        ])
-        .alignment(Alignment::Center)
-        .render(chunks[0], buf);
-        hint_bar("Esc  back", chunks[1], buf);
+        render_centered(inner, buf, "No saved adventurers found.");
         return;
     }
-
-    let chunks = Layout::horizontal([
-        Constraint::Percentage(45),
-        Constraint::Percentage(55),
-    ]).split(inner);
-
-    // Left: character list
-    let list_lines: Vec<Line> = app.saved_characters.iter().enumerate().map(|(i, ch)| {
-        let tag = format!(
-            "  {:<16} {:<10} {:<10} Lv.{}",
-            ch.name, ch.race, ch.class, ch.level
-        );
-        if i == app.load_cursor {
-            Line::from(Span::styled(format!("▶{}", &tag[1..]), selected_style()))
+    let panels = Layout::horizontal([Constraint::Percentage(44), Constraint::Percentage(56)]).split(inner);
+    let list = app.saved_characters.iter().enumerate().map(|(idx, character)| {
+        let row = format!("  {:<14} {:<8} Lv.{}", character.name, character.class.name(), character.level);
+        if idx == app.load_cursor {
+            Line::from(Span::styled(format!("▶{}", &row[1..]), selected_style()))
         } else {
-            Line::from(Span::styled(tag, normal_style()))
+            Line::from(Span::styled(row, normal_style()))
         }
-    }).collect();
-
-    Paragraph::new(list_lines)
+    }).collect::<Vec<_>>();
+    Paragraph::new(list)
         .block(Block::bordered().title(" Saves ").border_type(BorderType::Rounded).style(dim_style()))
-        .render(chunks[0], buf);
-
-    // Right: stats detail for highlighted character
+        .render(panels[0], buf);
     let ch = &app.saved_characters[app.load_cursor];
     let detail = vec![
         Line::from(Span::styled(&ch.name, Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
-        Line::from(vec![
-            Span::styled(format!("{} ", ch.race), normal_style()),
-            Span::styled(&ch.class, Style::default().fg(Color::Cyan)),
-            Span::styled(format!("  •  Level {}", ch.level), dim_style()),
-        ]),
+        Line::from(format!("{} {}", ch.race.name(), ch.class.name())),
+        Line::from(format!("Level {}  XP {}", ch.level, ch.xp)),
+        Line::from(format!("HP {}/{}", ch.resources.hp, ch.resources.max_hp)),
+        Line::from(format!("Mana {}/{}  Stamina {}/{}", ch.resources.mana, ch.resources.max_mana, ch.resources.stamina, ch.resources.max_stamina)),
         Line::from(""),
-        Line::from(vec![
-            stat_chip(ch.major_skills[0].kind.short_name(), ch.major_skills[0].points), Span::raw("  "),
-            stat_chip(ch.major_skills[1].kind.short_name(), ch.major_skills[1].points), Span::raw("  "),
-            stat_chip(ch.major_skills[2].kind.short_name(), ch.major_skills[2].points),
-        ]),
-        Line::from(vec![
-            stat_chip(ch.major_skills[3].kind.short_name(), ch.major_skills[3].points), Span::raw("  "),
-            stat_chip(ch.major_skills[4].kind.short_name(), ch.major_skills[4].points), Span::raw("  "),
-            stat_chip(ch.major_skills[5].kind.short_name(), ch.major_skills[5].points),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Gear:  ", dim_style()),
-            Span::styled(&ch.gear, normal_style()),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled(format!("HP {}/{}", ch.hp, ch.max_hp), Style::default().fg(Color::Red)),
-            Span::raw("  "),
-            Span::styled(format!("XP {}", ch.xp), Style::default().fg(Color::Cyan)),
-            Span::raw("  "),
-            Span::styled(format!("Gold {}", ch.gold), Style::default().fg(GOLD)),
-        ]),
+        Line::from(format!("Gear kit: {}", ch.gear)),
     ];
-
-    let hint_area = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
     Paragraph::new(detail)
         .block(Block::bordered().title(" Details ").border_type(BorderType::Rounded).style(dim_style()))
-        .render(chunks[1], buf);
-    hint_bar("↑ ↓ / j k  navigate    Enter  load    Esc  back", hint_area[1], buf);
+        .render(panels[1], buf);
 }
 
-// ── In-Game (placeholder) ─────────────────────────────────────────────────────
-
-fn render_in_game(app: &App, area: Rect, buf: &mut Buffer) {
+fn render_town(app: &App, area: Rect, buf: &mut Buffer) {
     let Some(ch) = &app.active_character else {
-        render_placeholder("Error", "No active character.", area, buf);
+        render_placeholder("Town", "No active character.", area, buf);
         return;
     };
-
     let outer = Block::bordered()
-        .title(format!(" The Wilds — {} ", ch.name))
+        .title(" Hearthmere ")
         .title_alignment(Alignment::Center)
         .border_type(BorderType::Rounded)
         .style(Style::default().fg(GOLD));
@@ -597,314 +394,195 @@ fn render_in_game(app: &App, area: Rect, buf: &mut Buffer) {
     outer.render(area, buf);
 
     let chunks = Layout::vertical([
-        Constraint::Length(4), // character header bar
-        Constraint::Min(1),    // world area (placeholder)
-        Constraint::Length(2), // hint
-    ]).split(inner);
-
-    // Character status bar
-    let status = vec![
-        Line::from(vec![
-            Span::styled(format!("  {} ", ch.name), Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("{}  {}  ", ch.race, ch.class), normal_style()),
-            Span::styled(format!("Lv.{}  ", ch.level), Style::default().fg(Color::Cyan)),
-            Span::styled(format!("HP {}/{}  ", ch.hp, ch.max_hp), Style::default().fg(Color::Red)),
-            Span::styled(format!("XP {}  ", ch.xp), Style::default().fg(Color::Cyan)),
-            Span::styled(format!("Gold {}", ch.gold), Style::default().fg(GOLD)),
-        ]),
-        Line::from(vec![
-            Span::raw("  "),
-            stat_chip(ch.major_skills[0].kind.short_name(), ch.major_skills[0].points), Span::raw("  "),
-            stat_chip(ch.major_skills[1].kind.short_name(), ch.major_skills[1].points), Span::raw("  "),
-            stat_chip(ch.major_skills[2].kind.short_name(), ch.major_skills[2].points), Span::raw("  "),
-            stat_chip(ch.major_skills[3].kind.short_name(), ch.major_skills[3].points), Span::raw("  "),
-            stat_chip(ch.major_skills[4].kind.short_name(), ch.major_skills[4].points), Span::raw("  "),
-            stat_chip(ch.major_skills[5].kind.short_name(), ch.major_skills[5].points),
-        ]),
-    ];
-    Paragraph::new(status)
-        .block(Block::bordered().border_type(BorderType::Rounded).style(dim_style()))
-        .render(chunks[0], buf);
-
-    // World placeholder
-    let world_lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            "You stand at the edge of the Wilds.",
-            Style::default().fg(TEXT),
-        )),
-        Line::from(""),
-        Line::from(Span::styled("The adventure begins here...", dim_style())),
-        Line::from(""),
-        Line::from(Span::styled("(Game world coming soon)", dim_style())),
-    ];
-    Paragraph::new(world_lines)
-        .alignment(Alignment::Center)
-        .render(chunks[1], buf);
-
-    hint_bar("f  fight    i  inventory    e  equipment    s  skills    Esc  main menu", chunks[2], buf);
-}
-
-// ── Combat ────────────────────────────────────────────────────────────────────
-
-fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
-    let Some(combat) = &app.combat else {
-        render_placeholder("Combat", "No active combat.", area, buf);
-        return;
-    };
-
-    let outer = Block::bordered()
-        .title(" Combat ")
-        .title_alignment(Alignment::Center)
-        .border_type(BorderType::Rounded)
-        .style(Style::default().fg(GOLD));
-    let inner = outer.inner(area);
-    outer.render(area, buf);
-
-    let header_height = (2 + combat.enemies.len() as u16 * 2).max(6);
-    let chunks = Layout::vertical([
-        Constraint::Length(header_height),
+        Constraint::Length(3),
         Constraint::Min(1),
         Constraint::Length(2),
     ])
     .split(inner);
+    render_status_bar(app, chunks[0], buf);
+    let panels = Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)]).split(chunks[1]);
 
-    let header = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(chunks[0]);
-    let player_turn = if combat.turn == Turn::Player { "Player turn" } else { "Enemy turn" };
+    let list = TownAction::ALL.iter().enumerate().map(|(idx, action)| {
+        if idx == app.town_cursor {
+            Line::from(Span::styled(format!("▶ {}", action.label()), selected_style()))
+        } else {
+            Line::from(Span::styled(format!("  {}", action.label()), normal_style()))
+        }
+    }).collect::<Vec<_>>();
+    Paragraph::new(list)
+        .block(Block::bordered().title(" Town Actions ").border_type(BorderType::Rounded).style(dim_style()))
+        .render(panels[0], buf);
 
-    let player_lines = vec![
-        Line::from(Span::styled("You", Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+    let detail = vec![
+        Line::from(Span::styled("Town State", Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+        Line::from(format!("Unlocked areas: {}", app.world_state.unlocked_areas.len())),
+        Line::from(format!("Active quests: {}", app.world_state.active_quests.len())),
+        Line::from(format!("Completed quests: {}", app.world_state.completed_quests.len())),
+        Line::from(""),
         Line::from(Span::styled(
-            hp_bar("HP", combat.player_hp, combat.player_max_hp, 24),
-            Style::default().fg(Color::Red),
+            app.status_message.as_deref().unwrap_or("The town is tense, but stable enough to prepare."),
+            normal_style(),
         )),
-        Line::from(vec![
-            Span::styled("Defense ", dim_style()),
-            Span::styled(
-                combat.player_defense.to_string(),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            ),
-        ]),
-        Line::from(Span::styled(player_turn, dim_style())),
+        Line::from(""),
+        Line::from(Span::styled(format!("{} watches the square and checks supplies.", ch.name), dim_style())),
     ];
-    Paragraph::new(player_lines)
-        .block(Block::bordered().title(" Player ").border_type(BorderType::Rounded).style(dim_style()))
-        .render(header[0], buf);
-
-    let mut enemy_lines: Vec<Line> = vec![];
-    for (idx, enemy) in combat.enemies.iter().enumerate() {
-        let is_selected = idx == combat.selected_enemy;
-        let is_dead = enemy.hp == 0;
-        let cursor = if is_selected { "▶" } else { " " };
-        let name_style = if is_dead {
-            Style::default().fg(Color::DarkGray)
-        } else if is_selected {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-        } else {
-            normal_style()
-        };
-        let name_text = if is_dead {
-            format!("{} {} [defeated]", cursor, enemy.name)
-        } else {
-            format!("{} {}", cursor, enemy.name)
-        };
-        enemy_lines.push(Line::from(Span::styled(name_text, name_style)));
-        enemy_lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(
-                hp_bar("HP", enemy.hp, enemy.max_hp, 16),
-                Style::default().fg(if is_dead { Color::DarkGray } else { Color::Red }),
-            ),
-            Span::styled(
-                format!("  DEF:{}", enemy.defense),
-                if is_selected && !is_dead { Style::default().fg(Color::Yellow) } else { dim_style() },
-            ),
-        ]));
-    }
-    Paragraph::new(enemy_lines)
-        .block(Block::bordered().title(" Enemies (Tab) ").border_type(BorderType::Rounded).style(dim_style()))
-        .render(header[1], buf);
-
-    let (options, selected_idx) = combat.selected_options();
-    let selected_label = combat.selected_option_name();
-    let mode_tabs = vec![
-        tab_chip_avail("1:Melee",  combat.active_attack_kind == AttackKind::Melee,  !combat.melee_options.is_empty()),
-        Span::raw(" "),
-        tab_chip_avail("2:Ranged", combat.active_attack_kind == AttackKind::Ranged, !combat.ranged_options.is_empty()),
-        Span::raw(" "),
-        tab_chip_avail("3:Spell",  combat.active_attack_kind == AttackKind::Spell,  !combat.spell_options.is_empty()),
-    ];
-
-    let mut selection_lines = vec![Line::from(mode_tabs), Line::from("")];
-    if options.is_empty() {
-        selection_lines.push(Line::from(Span::styled(
-            format!("No {} weapon equipped.", combat.active_attack_kind.label()),
-            Style::default().fg(Color::DarkGray),
-        )));
-    } else {
-        selection_lines.push(Line::from(Span::styled(
-            format!("Selected {}: {}", combat.active_attack_kind.label(), selected_label),
-            Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
-        )));
-        selection_lines.extend(options.iter().enumerate().map(|(idx, option)| {
-            let row = format!(
-                "{}  Hit +{}  Dmg {}",
-                option.name,
-                option.accuracy_bonus,
-                option.damage_range_label()
-            );
-            if idx == selected_idx {
-                Line::from(Span::styled(format!("▶ {}", row), selected_style()))
-            } else {
-                Line::from(Span::styled(format!("  {}", row), normal_style()))
-            }
-        }));
-    }
-
-    let visible_start = combat.log.len().saturating_sub(5);
-    let new_start = combat.log.len().saturating_sub(combat.new_log_entries);
-    let log_lines: Vec<Line> = combat
-        .log
-        .iter()
-        .enumerate()
-        .skip(visible_start)
-        .map(|(idx, entry)| {
-            if idx >= new_start {
-                Line::from(Span::styled(
-                    format!("▶ {entry}"),
-                    Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
-                ))
-            } else {
-                Line::from(Span::styled(format!("• {entry}"), normal_style()))
-            }
-        })
-        .collect();
-
-    let lower = Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)]).split(chunks[1]);
-    Paragraph::new(selection_lines)
-        .block(Block::bordered().title(" Actions ").border_type(BorderType::Rounded).style(dim_style()))
+    Paragraph::new(detail)
+        .block(Block::bordered().title(" Overview ").border_type(BorderType::Rounded).style(dim_style()))
         .wrap(ratatui::widgets::Wrap { trim: true })
-        .render(lower[0], buf);
+        .render(panels[1], buf);
 
-    Paragraph::new(log_lines)
-        .block(Block::bordered().title(" Battle Log ").border_type(BorderType::Rounded).style(dim_style()))
-        .wrap(ratatui::widgets::Wrap { trim: true })
-        .render(lower[1], buf);
-
-    let footer = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(chunks[2]);
-    if let Some(summary) = &combat.last_roll_summary {
-        let roll_line = Line::from(vec![
-            Span::styled("Last Roll: ", dim_style()),
-            Span::styled(summary, Style::default().fg(Color::Cyan)),
-        ]);
-        Paragraph::new(roll_line)
-            .alignment(Alignment::Center)
-            .render(footer[0], buf);
-    }
-
-    hint_bar(
-        "1/2/3 select type    ↑ ↓ choose option    Tab cycle target    Enter/a attack    d defend    f flee",
-        footer[1],
-        buf,
-    );
+    hint_bar("↑ ↓ choose    Enter confirm    x explore    c character    i inventory    e equipment    q quests    v vendors    r rest", chunks[2], buf);
 }
 
-// ── Skills ────────────────────────────────────────────────────────────────────
+fn render_explore(app: &App, area: Rect, buf: &mut Buffer) {
+    let outer = Block::bordered()
+        .title(" Explore ")
+        .title_alignment(Alignment::Center)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(GOLD));
+    let inner = outer.inner(area);
+    outer.render(area, buf);
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(1), Constraint::Length(2)]).split(inner);
+    render_status_bar(app, chunks[0], buf);
+    let panels = Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).split(chunks[1]);
+    let list = AreaId::ALL.iter().enumerate().map(|(idx, area)| {
+        let unlocked = app.world_state.is_area_unlocked(*area);
+        let prefix = if idx == app.explore_cursor { "▶" } else { " " };
+        let label = if unlocked { area.label() } else { "Locked Route" };
+        let style = if idx == app.explore_cursor {
+            selected_style()
+        } else if unlocked {
+            normal_style()
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        Line::from(Span::styled(format!("{prefix} {label}"), style))
+    }).collect::<Vec<_>>();
+    Paragraph::new(list)
+        .block(Block::bordered().title(" Areas ").border_type(BorderType::Rounded).style(dim_style()))
+        .render(panels[0], buf);
+    let area = area_def(AreaId::ALL[app.explore_cursor]);
+    let detail = vec![
+        Line::from(Span::styled(area.name, Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+        Line::from(area.description),
+        Line::from(""),
+        Line::from(vec![Span::styled("Danger: ", dim_style()), Span::styled(area.danger, normal_style())]),
+        Line::from(vec![Span::styled("Encounter pool: ", dim_style()), Span::styled(area.encounters.join(", "), Style::default().fg(Color::Cyan))]),
+    ];
+    Paragraph::new(detail)
+        .block(Block::bordered().title(" Route Detail ").border_type(BorderType::Rounded).style(dim_style()))
+        .wrap(ratatui::widgets::Wrap { trim: true })
+        .render(panels[1], buf);
+    hint_bar("↑ ↓ choose area    Enter travel    Esc return", chunks[2], buf);
+}
 
-fn render_skills(app: &App, area: Rect, buf: &mut Buffer) {
+fn render_character_sheet(app: &App, area: Rect, buf: &mut Buffer) {
     let Some(ch) = &app.active_character else {
-        render_placeholder("Skills", "No active character.", area, buf);
+        render_placeholder("Character", "No active character.", area, buf);
         return;
     };
-
     let outer = Block::bordered()
-        .title(" Proficiencies ")
+        .title(" Character ")
         .title_alignment(Alignment::Center)
         .border_type(BorderType::Rounded)
         .style(Style::default().fg(GOLD));
     let inner = outer.inner(area);
     outer.render(area, buf);
 
-    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
-
-    let panels = Layout::horizontal([
-        Constraint::Percentage(38),
-        Constraint::Percentage(62),
-    ]).split(chunks[0]);
-
-    // Left: skill list
-    let list_lines: Vec<Line> = ch.minor_skills.iter().enumerate().map(|(i, skill)| {
-        let level = skill.level();
-        let level_color = match level {
-            99         => GOLD,
-            71..=98    => Color::Green,
-            31..=70    => Color::Cyan,
-            _          => TEXT,
-        };
-        if i == app.minor_skills_cursor {
-            Line::from(Span::styled(
-                format!("▶ {:<15} Rank {:>2}", skill.kind.name(), level),
-                selected_style(),
-            ))
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Length(1), Constraint::Min(1), Constraint::Length(2)]).split(inner);
+    render_status_bar(app, chunks[0], buf);
+    let tabs = CharacterTab::ALL.iter().map(|tab| {
+        if *tab == app.character_tab {
+            Span::styled(format!("[{}]", tab.label()), selected_style())
         } else {
-            Line::from(vec![
-                Span::styled(format!("  {:<15} ", skill.kind.name()), normal_style()),
-                Span::styled(format!("Rk.{:>2}", level), Style::default().fg(level_color)),
-            ])
+            Span::styled(tab.label().to_string(), dim_style())
         }
-    }).collect();
+    }).flat_map(|span| [span, Span::raw("  ")]).collect::<Vec<_>>();
+    Paragraph::new(Line::from(tabs)).alignment(Alignment::Center).render(chunks[1], buf);
 
-    Paragraph::new(list_lines)
-        .block(Block::bordered().title(" Proficiency ").border_type(BorderType::Rounded).style(dim_style()))
-        .render(panels[0], buf);
-
-    // Right: detail for highlighted skill
-    let skill = &ch.minor_skills[app.minor_skills_cursor];
-    let level = skill.level();
-    let detail_width = (panels[1].width as usize).saturating_sub(6); // inner width for bar
-
-    let mut detail = vec![
-        Line::from(Span::styled(skill.kind.name(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
-        Line::from(""),
-        Line::from(Span::styled(skill.kind.description(), dim_style())),
-        Line::from(""),
-    ];
-
-    if level >= 99 {
-        detail.push(Line::from(Span::styled(
-            "MAX LEVEL",
-            Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
-        )));
-    } else {
-        let bar_width = detail_width.min(30);
-        let bar = skill_progress_bar(skill.progress(), bar_width);
-        detail.extend([
-            Line::from(vec![
-                Span::styled("Rank      ", dim_style()),
-                Span::styled(level.to_string(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(vec![
-                Span::styled("Training XP", dim_style()),
-                Span::styled(format_xp(skill.xp), normal_style()),
-            ]),
-            Line::from(vec![
-                Span::styled("Next rank ", dim_style()),
-                Span::styled(format!("+{} XP", format_xp(skill.xp_to_next() as i32)), Style::default().fg(Color::Cyan)),
-            ]),
-            Line::from(""),
-            Line::from(Span::styled(bar, Style::default().fg(Color::Cyan))),
-        ]);
+    match app.character_tab {
+        CharacterTab::Attributes => {
+            let lines = vec![
+                Line::from(format!("Level {}  XP {}  Next {}", ch.level, ch.xp, active_xp_to_next(app))),
+                Line::from(format!("Unspent stat points: {}", ch.unspent_stat_points)),
+                Line::from(""),
+                Line::from(format!("STR {:>2}  DEX {:>2}  CON {:>2}", ch.stats.strength, ch.stats.dexterity, ch.stats.constitution)),
+                Line::from(format!("INT {:>2}  WIS {:>2}  CHA {:>2}", ch.stats.intelligence, ch.stats.wisdom, ch.stats.charisma)),
+                Line::from(""),
+                Line::from(Span::styled(progress_bar(active_level_progress(app), 32), Style::default().fg(Color::Cyan))),
+            ];
+            Paragraph::new(lines)
+                .block(Block::bordered().title(" Attributes ").border_type(BorderType::Rounded).style(dim_style()))
+                .render(chunks[2], buf);
+        }
+        CharacterTab::Abilities => {
+            let lines = ch
+                .known_abilities
+                .iter()
+                .enumerate()
+                .map(|(idx, ability)| {
+                    let style = if idx == app.character_cursor.min(ch.known_abilities.len().saturating_sub(1)) {
+                        selected_style()
+                    } else {
+                        normal_style()
+                    };
+                    Line::from(Span::styled(
+                        format!(
+                            "{}  Rank {}  Cooldown {}",
+                            ability.ability_id,
+                            ability.rank,
+                            ability.cooldown_remaining
+                        ),
+                        style,
+                    ))
+                })
+                .collect::<Vec<_>>();
+            Paragraph::new(lines)
+                .block(Block::bordered().title(" Abilities ").border_type(BorderType::Rounded).style(dim_style()))
+                .render(chunks[2], buf);
+        }
+        CharacterTab::Proficiencies => {
+            let lines = ch
+                .proficiencies
+                .iter()
+                .enumerate()
+                .map(|(idx, skill)| {
+                    let style = if idx == app.character_cursor.min(ch.proficiencies.len().saturating_sub(1)) {
+                        selected_style()
+                    } else {
+                        normal_style()
+                    };
+                    Line::from(Span::styled(
+                        format!("{}  Rank {:>2}", skill.kind.name(), skill.level()),
+                        style,
+                    ))
+                })
+                .collect::<Vec<_>>();
+            Paragraph::new(lines)
+                .block(Block::bordered().title(" Proficiencies ").border_type(BorderType::Rounded).style(dim_style()))
+                .render(chunks[2], buf);
+        }
+        CharacterTab::Equipment => {
+            let lines = EquipSlot::ALL
+                .iter()
+                .map(|slot| {
+                    let item = app.equipment.get_slot(*slot)
+                        .and_then(find_def)
+                        .map(|def| def.name)
+                        .unwrap_or("(empty)");
+                    Line::from(format!("{:<8} {}", slot.label(), item))
+                })
+                .collect::<Vec<_>>();
+            Paragraph::new(lines)
+                .block(Block::bordered().title(" Equipment Summary ").border_type(BorderType::Rounded).style(dim_style()))
+                .render(chunks[2], buf);
+        }
     }
 
-    Paragraph::new(detail)
-        .block(Block::bordered().title(" Detail ").border_type(BorderType::Rounded).style(dim_style()))
-        .wrap(ratatui::widgets::Wrap { trim: false })
-        .render(panels[1], buf);
-
-    hint_bar("↑ ↓ / j k  navigate    Esc  back to game", chunks[1], buf);
+    hint_bar("← → / Tab change tab    ↑ ↓ browse    Esc return", chunks[3], buf);
 }
-
-// ── Inventory ─────────────────────────────────────────────────────────────────
 
 fn render_inventory(app: &App, area: Rect, buf: &mut Buffer) {
     let outer = Block::bordered()
@@ -914,130 +592,54 @@ fn render_inventory(app: &App, area: Rect, buf: &mut Buffer) {
         .style(Style::default().fg(GOLD));
     let inner = outer.inner(area);
     outer.render(area, buf);
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1), Constraint::Length(2)]).split(inner);
+    let panels = Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).split(chunks[0]);
 
-    let chunks = Layout::vertical([
-        Constraint::Min(1),
-        Constraint::Length(1), // use message
-        Constraint::Length(2), // hint bar
-    ])
-    .split(inner);
-
-    let panels =
-        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).split(chunks[0]);
-
-    let inv = &app.inventory;
-
-    // ── Left: item list ───────────────────────────────────────────────────────
-    let list_lines: Vec<Line> = if inv.items.is_empty() {
-        vec![Line::from(Span::styled("  (empty)", dim_style()))]
+    let list = if app.inventory.items.is_empty() {
+        vec![Line::from(Span::styled("(empty)", dim_style()))]
     } else {
-        inv.items
-            .iter()
-            .enumerate()
-            .map(|(i, item)| {
-                let name = item.def().map(|d| d.name).unwrap_or(&item.item_type);
-                let qty = format!("x{}", item.quantity);
-                if i == inv.cursor {
-                    Line::from(vec![
-                        Span::styled(format!("▶ {:<22}", name), selected_style()),
-                        Span::styled(format!(" {:<4}", qty), selected_style()),
-                    ])
-                } else {
-                    Line::from(vec![
-                        Span::styled(format!("  {:<22}", name), normal_style()),
-                        Span::styled(format!(" {:<4}", qty), dim_style()),
-                    ])
-                }
-            })
-            .collect()
+        app.inventory.items.iter().enumerate().map(|(idx, item)| {
+            let name = item.def().map(|def| def.name).unwrap_or(item.item_type.as_str());
+            let style = if idx == app.inventory.cursor { selected_style() } else { normal_style() };
+            Line::from(Span::styled(format!("{:<24} x{}", name, item.quantity), style))
+        }).collect::<Vec<_>>()
     };
-
-    Paragraph::new(list_lines)
-        .block(Block::bordered().title(" Items ").border_type(BorderType::Rounded).style(dim_style()))
+    Paragraph::new(list)
+        .block(Block::bordered().title(" Pack ").border_type(BorderType::Rounded).style(dim_style()))
         .render(panels[0], buf);
 
-    // ── Right: detail panel ───────────────────────────────────────────────────
-    let detail_lines: Vec<Line> = match inv.selected_def() {
-        None => vec![Line::from(Span::styled("No item selected.", dim_style()))],
+    let detail = match app.inventory.selected_def() {
+        None => vec![Line::from("No item selected.")],
         Some(def) => {
-            let kind_color = match def.kind {
-                ItemKind::Consumable => Color::Green,
-                ItemKind::Equipment  => Color::Cyan,
-                ItemKind::Quest      => Color::Magenta,
-            };
             let mut lines = vec![
                 Line::from(Span::styled(def.name, Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
                 Line::from(""),
-                Line::from(Span::styled(def.description, normal_style())),
+                Line::from(def.description),
                 Line::from(""),
-                Line::from(Span::styled(
-                    format!("[{}]", def.combat_role_label()),
-                    Style::default().fg(kind_color),
-                )),
+                Line::from(format!("[{} • {}]", def.kind.label(), def.rarity.label())),
+                Line::from(format!("Value: {}", def.base_value)),
             ];
-            if let Some(slot) = def.equip_slot {
-                lines.push(Line::from(""));
-                lines.push(Line::from(vec![
-                    Span::styled("Slot      ", dim_style()),
-                    Span::styled(slot.label(), normal_style()),
-                ]));
-            }
-            if def.defense_bonus > 0 {
-                lines.push(Line::from(vec![
-                    Span::styled("Armor     ", dim_style()),
-                    Span::styled(format!("+{}", def.defense_bonus), Style::default().fg(Color::Cyan)),
-                ]));
-            }
-            if !def.attacks.is_empty() {
-                lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("Combat options", dim_style())));
-                for attack in def.attacks {
-                    lines.push(Line::from(Span::styled(
-                        format!(
-                            "• {}  Hit +{}  Dmg {}",
-                            attack.name,
-                            attack.accuracy_bonus,
-                            attack.damage_range_label()
-                        ),
-                        normal_style(),
-                    )));
-                }
-            }
-            if def.heal_amount > 0 {
-                lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled(
-                    format!("Restores {} HP on use.", def.heal_amount),
-                    Style::default().fg(Color::Red),
-                )));
+            if def.is_equippable() {
+                lines.push(Line::from(format!("Equip slot: {}", def.equip_slot.map(|slot| slot.label()).unwrap_or("None"))));
             }
             if def.is_usable() {
-                lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("Enter / u  — use", dim_style())));
+                lines.push(Line::from("Enter: use"));
             }
             if def.is_equippable() {
-                lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("e  — equip", dim_style())));
+                lines.push(Line::from("Right / e: equip"));
             }
             lines
         }
     };
-
-    Paragraph::new(detail_lines)
+    Paragraph::new(detail)
         .block(Block::bordered().title(" Details ").border_type(BorderType::Rounded).style(dim_style()))
         .wrap(ratatui::widgets::Wrap { trim: false })
         .render(panels[1], buf);
-
-    // ── Use message ───────────────────────────────────────────────────────────
-    if let Some(msg) = &inv.last_use_message {
-        Paragraph::new(Span::styled(msg.as_str(), Style::default().fg(Color::Green)))
-            .alignment(Alignment::Center)
-            .render(chunks[1], buf);
+    if let Some(msg) = &app.inventory.last_use_message {
+        Paragraph::new(Span::styled(msg, Style::default().fg(Color::Green))).alignment(Alignment::Center).render(chunks[1], buf);
     }
-
-    hint_bar("↑ ↓ / j k  navigate    Enter/u use    e equip    Esc back", chunks[2], buf);
+    hint_bar("↑ ↓ choose    Enter use    Right/e equip    Esc return", chunks[2], buf);
 }
-
-// ── Equipment ─────────────────────────────────────────────────────────────────
 
 fn render_equipment(app: &App, area: Rect, buf: &mut Buffer) {
     let outer = Block::bordered()
@@ -1047,178 +649,357 @@ fn render_equipment(app: &App, area: Rect, buf: &mut Buffer) {
         .style(Style::default().fg(GOLD));
     let inner = outer.inner(area);
     outer.render(area, buf);
-
-    let chunks = Layout::vertical([
-        Constraint::Min(1),
-        Constraint::Length(1), // status message
-        Constraint::Length(2), // hint bar
-    ])
-    .split(inner);
-
-    let panels =
-        Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)]).split(chunks[0]);
-
-    let eq = &app.equipment;
-
-    // ── Left: slot list ───────────────────────────────────────────────────────
-    let slot_lines: Vec<Line> = EquipSlot::ALL
-        .iter()
-        .enumerate()
-        .map(|(i, &slot)| {
-            let item_name = eq
-                .get_slot(slot)
-                .and_then(|t| crate::inventory::find_def(t))
-                .map(|d| d.name)
-                .unwrap_or("(empty)");
-            let empty = item_name == "(empty)";
-            if i == app.equipment_cursor {
-                Line::from(vec![
-                    Span::styled(format!("▶ {:<8}", slot.label()), selected_style()),
-                    Span::styled(format!(" {}", item_name), selected_style()),
-                ])
-            } else if empty {
-                Line::from(vec![
-                    Span::styled(format!("  {:<8}", slot.label()), dim_style()),
-                    Span::styled(format!(" {}", item_name), Style::default().fg(Color::DarkGray)),
-                ])
-            } else {
-                Line::from(vec![
-                    Span::styled(format!("  {:<8}", slot.label()), dim_style()),
-                    Span::styled(format!(" {}", item_name), normal_style()),
-                ])
-            }
-        })
-        .collect();
-
-    Paragraph::new(slot_lines)
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1), Constraint::Length(2)]).split(inner);
+    let panels = Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)]).split(chunks[0]);
+    let list = EquipSlot::ALL.iter().enumerate().map(|(idx, slot)| {
+        let name = app.equipment.get_slot(*slot)
+            .and_then(find_def)
+            .map(|def| def.name)
+            .unwrap_or("(empty)");
+        let style = if idx == app.equipment_cursor { selected_style() } else { normal_style() };
+        Line::from(Span::styled(format!("{:<8} {}", slot.label(), name), style))
+    }).collect::<Vec<_>>();
+    Paragraph::new(list)
         .block(Block::bordered().title(" Slots ").border_type(BorderType::Rounded).style(dim_style()))
         .render(panels[0], buf);
-
-    // ── Right: detail panel ───────────────────────────────────────────────────
-    let selected_slot = EquipSlot::ALL[app.equipment_cursor];
-    let detail_lines: Vec<Line> = match eq.get_slot(selected_slot).and_then(|t| crate::inventory::find_def(t)) {
-        None => vec![
-            Line::from(Span::styled(selected_slot.label(), Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+    let slot = EquipSlot::ALL[app.equipment_cursor];
+    let detail = match app.equipment.get_slot(slot).and_then(find_def) {
+        None => vec![Line::from(format!("{} is empty.", slot.label()))],
+        Some(def) => vec![
+            Line::from(Span::styled(def.name, Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
             Line::from(""),
-            Line::from(Span::styled("Nothing equipped.", dim_style())),
+            Line::from(def.description),
+            Line::from(""),
+            Line::from(format!("Armor {}  Attack {}  Spell {}", def.equipment_stats.armor, def.equipment_stats.attack_bonus, def.equipment_stats.spell_power)),
+            Line::from(""),
+            Line::from("Enter: unequip"),
         ],
-        Some(def) => {
-            let mut lines = vec![
-                Line::from(Span::styled(def.name, Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
-                Line::from(""),
-                Line::from(Span::styled(def.description, normal_style())),
-                Line::from(""),
-                Line::from(Span::styled(
-                    format!("[{}]", def.combat_role_label()),
-                    Style::default().fg(Color::Cyan),
-                )),
-            ];
-            if !def.attacks.is_empty() {
-                lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled("Combat options", dim_style())));
-                for attack in def.attacks {
-                    lines.push(Line::from(Span::styled(
-                        format!(
-                            "• {}  Hit +{}  Dmg {}",
-                            attack.name,
-                            attack.accuracy_bonus,
-                            attack.damage_range_label()
-                        ),
-                        normal_style(),
-                    )));
-                }
-            }
-            if def.defense_bonus > 0 {
-                lines.push(Line::from(""));
-                lines.push(Line::from(vec![
-                    Span::styled("Armor     ", dim_style()),
-                    Span::styled(format!("+{}", def.defense_bonus), Style::default().fg(Color::Cyan)),
-                ]));
-            }
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("Enter / u  — unequip", dim_style())));
-            lines
-        }
     };
-
-    Paragraph::new(detail_lines)
+    Paragraph::new(detail)
         .block(Block::bordered().title(" Details ").border_type(BorderType::Rounded).style(dim_style()))
-        .wrap(ratatui::widgets::Wrap { trim: false })
+        .render(panels[1], buf);
+    Paragraph::new(Span::styled(
+        app.status_message.as_deref().unwrap_or(&format!("Total armor: {}", app.equipment.total_armor_bonus())),
+        Style::default().fg(Color::Cyan),
+    ))
+    .alignment(Alignment::Center)
+    .render(chunks[1], buf);
+    hint_bar("↑ ↓ choose slot    Enter unequip    Esc return", chunks[2], buf);
+}
+
+fn render_quests(app: &App, area: Rect, buf: &mut Buffer) {
+    let outer = Block::bordered()
+        .title(" Quest Log ")
+        .title_alignment(Alignment::Center)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(GOLD));
+    let inner = outer.inner(area);
+    outer.render(area, buf);
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(1), Constraint::Length(2)]).split(inner);
+    let panels = Layout::horizontal([Constraint::Percentage(42), Constraint::Percentage(58)]).split(chunks[0]);
+    let list = QuestId::ALL.iter().enumerate().map(|(idx, quest_id)| {
+        let def = quest_def(quest_id.id()).unwrap();
+        let status = if app.world_state.has_completed(*quest_id) {
+            "Complete"
+        } else if app.world_state.active_quest(*quest_id).is_some() {
+            "Active"
+        } else {
+            "Available"
+        };
+        let style = if idx == app.quest_cursor { selected_style() } else { normal_style() };
+        Line::from(Span::styled(format!("{} [{}]", def.name, status), style))
+    }).collect::<Vec<_>>();
+    Paragraph::new(list)
+        .block(Block::bordered().title(" Contracts ").border_type(BorderType::Rounded).style(dim_style()))
+        .render(panels[0], buf);
+    let quest_id = QuestId::ALL[app.quest_cursor];
+    let quest = quest_def(quest_id.id()).unwrap();
+    let mut detail = vec![
+        Line::from(Span::styled(quest.name, Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+        Line::from(quest.summary),
+        Line::from(format!("Given by {}", quest.giver)),
+        Line::from(""),
+        Line::from("Objectives:"),
+    ];
+    for objective in quest.objectives {
+        detail.push(Line::from(format!("• {}", objective.text)));
+    }
+    detail.push(Line::from(""));
+    detail.push(Line::from(format!("Rewards: {} XP, {} gold", quest.rewards.xp, quest.rewards.gold)));
+    if let Some(item) = quest.rewards.item_type.and_then(find_def) {
+        detail.push(Line::from(format!("Bonus item: {} x{}", item.name, quest.rewards.item_qty)));
+    }
+    if !app.world_state.has_completed(quest_id) && app.world_state.active_quest(quest_id).is_none() {
+        detail.push(Line::from(""));
+        detail.push(Line::from("Enter: accept quest"));
+    }
+    Paragraph::new(detail)
+        .block(Block::bordered().title(" Quest Detail ").border_type(BorderType::Rounded).style(dim_style()))
+        .wrap(ratatui::widgets::Wrap { trim: true })
+        .render(panels[1], buf);
+    if let Some(msg) = &app.status_message {
+        Paragraph::new(Span::styled(msg, Style::default().fg(Color::Green))).alignment(Alignment::Center).render(chunks[1], buf);
+    }
+    hint_bar("↑ ↓ choose quest    Enter accept    Esc return", chunks[2], buf);
+}
+
+fn render_shop(app: &App, area: Rect, buf: &mut Buffer) {
+    let Some(ch) = &app.active_character else {
+        render_placeholder("Shop", "No active character.", area, buf);
+        return;
+    };
+    let outer = Block::bordered()
+        .title(" Vendors ")
+        .title_alignment(Alignment::Center)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(GOLD));
+    let inner = outer.inner(area);
+    outer.render(area, buf);
+    let chunks = Layout::vertical([Constraint::Length(3), Constraint::Min(1), Constraint::Length(2)]).split(inner);
+    Paragraph::new(Line::from(vec![
+        Span::styled(format!("Vendor: {}  ", vendor_def(VendorId::ALL[app.vendor_cursor]).name), Style::default().fg(GOLD)),
+        Span::styled(if app.shop_buy_mode { "[Buy]" } else { "[Sell]" }, selected_style()),
+        Span::styled(format!("  Gold {}", ch.gold), Style::default().fg(Color::Cyan)),
+    ]))
+    .alignment(Alignment::Center)
+    .render(chunks[0], buf);
+    let panels = Layout::horizontal([Constraint::Percentage(42), Constraint::Percentage(58)]).split(chunks[1]);
+    let list = if app.shop_buy_mode {
+        let vendor = vendor_def(VendorId::ALL[app.vendor_cursor]);
+        vendor.inventory.iter().enumerate().map(|(idx, entry)| {
+            let def = find_def(entry.item_type).unwrap();
+            let style = if idx == app.shop_cursor { selected_style() } else { normal_style() };
+            Line::from(Span::styled(format!("{}  {}g", def.name, def.base_value), style))
+        }).collect::<Vec<_>>()
+    } else {
+        app.inventory.items.iter().enumerate().map(|(idx, item)| {
+            let def = item.def().unwrap();
+            let style = if idx == app.shop_cursor { selected_style() } else { normal_style() };
+            Line::from(Span::styled(format!("{} x{}  {}g", def.name, item.quantity, (def.base_value * 40) / 100), style))
+        }).collect::<Vec<_>>()
+    };
+    Paragraph::new(list)
+        .block(Block::bordered().title(" Stock ").border_type(BorderType::Rounded).style(dim_style()))
+        .render(panels[0], buf);
+
+    let detail = if app.shop_buy_mode {
+        let vendor = vendor_def(VendorId::ALL[app.vendor_cursor]);
+        vendor.inventory.get(app.shop_cursor.min(vendor.inventory.len().saturating_sub(1)))
+            .and_then(|entry| find_def(entry.item_type))
+            .map(render_item_detail)
+            .unwrap_or_else(|| vec![Line::from("No item selected.")])
+    } else {
+        app.inventory.items.get(app.shop_cursor.min(app.inventory.items.len().saturating_sub(1)))
+            .and_then(|item| item.def())
+            .map(render_item_detail)
+            .unwrap_or_else(|| vec![Line::from("No item selected.")])
+    };
+    Paragraph::new(detail)
+        .block(Block::bordered().title(" Details ").border_type(BorderType::Rounded).style(dim_style()))
+        .wrap(ratatui::widgets::Wrap { trim: true })
         .render(panels[1], buf);
 
-    // ── Status message ────────────────────────────────────────────────────────
-    let status_style = Style::default().fg(match app.equipment_message {
-        Some(_) => Color::Green,
-        None => Color::Cyan,
-    });
-    let status_text = app
-        .equipment_message
-        .as_deref()
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("Total armor rating: {}", app.equipment.total_armor_bonus()));
-    Paragraph::new(Span::styled(status_text, status_style))
-        .alignment(Alignment::Center)
-        .render(chunks[1], buf);
-
-    hint_bar("↑ ↓ / j k  navigate    Enter/u unequip    Esc back", chunks[2], buf);
-}
-
-fn skill_progress_bar(pct: f64, width: usize) -> String {
-    let filled = (pct * width as f64).round() as usize;
-    let empty  = width.saturating_sub(filled);
-    format!("[{}{}] {:>3}%", "█".repeat(filled), "░".repeat(empty), (pct * 100.0) as u32)
-}
-
-fn format_xp(n: i32) -> String {
-    // Formats numbers with thousands separators: 1_234_567 → "1,234,567"
-    let s = n.to_string();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, ch) in s.chars().rev().enumerate() {
-        if i > 0 && i % 3 == 0 { out.push(','); }
-        out.push(ch);
+    if let Some(msg) = &app.status_message {
+        Paragraph::new(Span::styled(msg, Style::default().fg(Color::Green))).alignment(Alignment::Center).render(chunks[2], buf);
+    } else {
+        hint_bar("← → change vendor    Tab buy/sell    ↑ ↓ choose item    Enter transact    Esc return", chunks[2], buf);
     }
-    out.chars().rev().collect()
 }
 
-// ── Shared helpers ────────────────────────────────────────────────────────────
+fn render_dialogue(app: &App, area: Rect, buf: &mut Buffer) {
+    let outer = Block::bordered()
+        .title(format!(" {} ", app.dialogue_title))
+        .title_alignment(Alignment::Center)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(GOLD));
+    let inner = outer.inner(area);
+    outer.render(area, buf);
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
+    let lines = app.dialogue_lines.iter().map(|line| Line::from(line.clone())).collect::<Vec<_>>();
+    Paragraph::new(lines)
+        .alignment(Alignment::Left)
+        .wrap(ratatui::widgets::Wrap { trim: false })
+        .render(chunks[0], buf);
+    hint_bar("Enter continue", chunks[1], buf);
+}
+
+fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
+    let Some(combat) = &app.combat else {
+        render_placeholder("Combat", "No active combat.", area, buf);
+        return;
+    };
+    let outer = Block::bordered()
+        .title(format!(" Combat: {} ", combat.encounter_name))
+        .title_alignment(Alignment::Center)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(GOLD));
+    let inner = outer.inner(area);
+    outer.render(area, buf);
+    let chunks = Layout::vertical([Constraint::Length(8), Constraint::Min(1), Constraint::Length(2)]).split(inner);
+    let header = Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)]).split(chunks[0]);
+
+    let player_lines = vec![
+        Line::from(Span::styled(&combat.player.name, Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+        Line::from(resource_bar("HP", combat.player.resources.hp, combat.player.resources.max_hp, 16)),
+        Line::from(resource_bar("Mana", combat.player.resources.mana, combat.player.resources.max_mana, 16)),
+        Line::from(resource_bar("Stam", combat.player.resources.stamina, combat.player.resources.max_stamina, 16)),
+        Line::from(format!("Defense {}  Initiative {}", combat.player.defense, combat.player.initiative)),
+        Line::from(format!("Turn: {}", if combat.current_turn() == TurnRef::Player { "Player" } else { "Enemy" })),
+    ];
+    Paragraph::new(player_lines)
+        .block(Block::bordered().title(" Player ").border_type(BorderType::Rounded).style(dim_style()))
+        .render(header[0], buf);
+
+    let enemy_lines = combat.enemies.iter().enumerate().flat_map(|(idx, enemy)| {
+        let style = if idx == combat.selected_target { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) } else { normal_style() };
+        [
+            Line::from(Span::styled(format!("{}{}", if idx == combat.selected_target { "▶ " } else { "  " }, enemy.name), style)),
+            Line::from(format!("  HP {}/{}  DEF {}  {}", enemy.resources.hp, enemy.resources.max_hp, enemy.defense, if enemy.resources.hp == 0 { "[defeated]" } else { enemy.family.as_str() })),
+        ]
+    }).collect::<Vec<_>>();
+    Paragraph::new(enemy_lines)
+        .block(Block::bordered().title(" Enemies ").border_type(BorderType::Rounded).style(dim_style()))
+        .render(header[1], buf);
+
+    let lower = Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)]).split(chunks[1]);
+    let tabs = [ActionTab::Weapon, ActionTab::Ability, ActionTab::Item]
+        .iter()
+        .flat_map(|tab| {
+            let span = if *tab == combat.action_tab {
+                Span::styled(format!("[{}]", tab.label()), selected_style())
+            } else {
+                Span::styled(tab.label().to_string(), dim_style())
+            };
+            [span, Span::raw(" ")]
+        })
+        .collect::<Vec<_>>();
+    let mut actions = vec![Line::from(tabs), Line::from("")];
+    match combat.action_tab {
+        ActionTab::Weapon => {
+            for (idx, attack) in combat.player.weapon_attacks.iter().enumerate() {
+                let style = if idx == combat.selected_weapon_attack { selected_style() } else { normal_style() };
+                actions.push(Line::from(Span::styled(
+                    format!("{}  Hit +{}  Dmg {}", attack.name, attack.accuracy_bonus, attack.damage_range_label()),
+                    style,
+                )));
+            }
+        }
+        ActionTab::Ability => {
+            for (idx, ability) in combat.player.ability_ids.iter().enumerate() {
+                let style = if idx == combat.selected_ability { selected_style() } else { normal_style() };
+                actions.push(Line::from(Span::styled(ability.clone(), style)));
+            }
+        }
+        ActionTab::Item => {
+            for (idx, item) in combat.consumables.iter().enumerate() {
+                let style = if idx == combat.selected_item { selected_style() } else { normal_style() };
+                let name = item.def().map(|def| def.name).unwrap_or(item.item_type.as_str());
+                actions.push(Line::from(Span::styled(format!("{name} x{}", item.quantity), style)));
+            }
+            if combat.consumables.is_empty() {
+                actions.push(Line::from(Span::styled("No combat consumables ready.", dim_style())));
+            }
+        }
+    }
+    Paragraph::new(actions)
+        .block(Block::bordered().title(" Actions ").border_type(BorderType::Rounded).style(dim_style()))
+        .wrap(ratatui::widgets::Wrap { trim: true })
+        .render(lower[0], buf);
+
+    let visible_start = combat.log.len().saturating_sub(8);
+    let new_start = combat.log.len().saturating_sub(combat.new_log_entries);
+    let log_lines = combat.log.iter().enumerate().skip(visible_start).map(|(idx, event)| {
+        let style = if idx >= new_start {
+            Style::default().fg(GOLD).add_modifier(Modifier::BOLD)
+        } else {
+            normal_style()
+        };
+        Line::from(Span::styled(event.to_line(), style))
+    }).collect::<Vec<_>>();
+    Paragraph::new(log_lines)
+        .block(Block::bordered().title(" Battle Log ").border_type(BorderType::Rounded).style(dim_style()))
+        .wrap(ratatui::widgets::Wrap { trim: true })
+        .render(lower[1], buf);
+
+    let footer = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(chunks[2]);
+    if let Some(summary) = &combat.last_roll_summary {
+        Paragraph::new(Span::styled(summary, Style::default().fg(Color::Cyan))).alignment(Alignment::Center).render(footer[0], buf);
+    }
+    hint_bar("1 weapon  2 ability  3 item    ↑ ↓ choose    Tab target    Enter use    d defend    f flee", footer[1], buf);
+}
+
+fn render_status_bar(app: &App, area: Rect, buf: &mut Buffer) {
+    let Some(ch) = &app.active_character else {
+        return;
+    };
+    let text = Line::from(vec![
+        Span::styled(format!("{} ", ch.name), Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("Lv.{} {}  ", ch.level, ch.class.name()), normal_style()),
+        Span::styled(format!("HP {}/{}  ", ch.resources.hp, ch.resources.max_hp), Style::default().fg(Color::Red)),
+        Span::styled(format!("Mana {}/{}  ", ch.resources.mana, ch.resources.max_mana), Style::default().fg(Color::Blue)),
+        Span::styled(format!("Stamina {}/{}  ", ch.resources.stamina, ch.resources.max_stamina), Style::default().fg(Color::Green)),
+        Span::styled(format!("Gold {}", ch.gold), Style::default().fg(GOLD)),
+    ]);
+    Paragraph::new(text).alignment(Alignment::Center).render(area, buf);
+}
+
+fn render_item_detail(def: &crate::inventory::ItemDef) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(Span::styled(def.name, Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+        Line::from(def.description),
+        Line::from(""),
+        Line::from(format!("[{} • {}]", def.kind.label(), def.rarity.label())),
+        Line::from(format!("Value: {}", def.base_value)),
+    ];
+    if def.is_equippable() {
+        lines.push(Line::from(format!("Slot: {}", def.equip_slot.map(|slot| slot.label()).unwrap_or("None"))));
+        lines.push(Line::from(format!(
+            "Armor {}  Attack {}  Spell {}",
+            def.equipment_stats.armor,
+            def.equipment_stats.attack_bonus,
+            def.equipment_stats.spell_power
+        )));
+    }
+    lines
+}
 
 fn render_placeholder(title: &str, message: &str, area: Rect, buf: &mut Buffer) {
-    let block = Block::bordered()
+    let outer = Block::bordered()
         .title(format!(" {title} "))
         .title_alignment(Alignment::Center)
         .border_type(BorderType::Rounded)
         .style(Style::default().fg(GOLD));
-    let inner = block.inner(area);
-    block.render(area, buf);
+    let inner = outer.inner(area);
+    outer.render(area, buf);
+    render_centered(inner, buf, message);
+}
 
-    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
-    Paragraph::new(message).style(normal_style()).alignment(Alignment::Center).render(chunks[0], buf);
-    hint_bar("Esc / q  back to menu", chunks[1], buf);
+fn render_centered(area: Rect, buf: &mut Buffer, message: &str) {
+    Paragraph::new(message).alignment(Alignment::Center).render(area, buf);
 }
 
 fn hint_bar(text: &str, area: Rect, buf: &mut Buffer) {
     Paragraph::new(text).style(dim_style()).alignment(Alignment::Center).render(area, buf);
 }
 
-fn hp_bar(label: &str, current: i32, max: i32, width: usize) -> String {
+fn stat_bar(filled: i32, max: i32) -> String {
+    let filled = filled.max(0) as usize;
+    let empty = (max - filled as i32).max(0) as usize;
+    format!("[{}{}]", "█".repeat(filled), "░".repeat(empty))
+}
+
+fn progress_bar(pct: f64, width: usize) -> String {
+    let filled = (pct * width as f64).round() as usize;
+    let empty = width.saturating_sub(filled);
+    format!("[{}{}] {:>3}%", "█".repeat(filled), "░".repeat(empty), (pct * 100.0) as i32)
+}
+
+fn resource_bar(label: &str, current: i32, max: i32, width: usize) -> Line<'static> {
     let max = max.max(1);
-    let current = current.clamp(0, max);
-    let ratio = current as f64 / max as f64;
+    let ratio = current.max(0) as f64 / max as f64;
     let filled = (ratio * width as f64).round() as usize;
     let empty = width.saturating_sub(filled);
-    format!("{label} [{}/{}] {}{}", current, max, "█".repeat(filled), "░".repeat(empty))
-}
-
-fn bool_label(v: bool) -> &'static str {
-    if v { "On" } else { "Off" }
-}
-
-fn tab_chip_avail(label: &str, active: bool, available: bool) -> Span<'_> {
-    if active {
-        Span::styled(format!("[{label}]"), selected_style())
-    } else if available {
-        Span::styled(label.to_string(), dim_style())
-    } else {
-        Span::styled(label.to_string(), Style::default().fg(Color::DarkGray))
-    }
+    Line::from(format!("{label:<4} {current:>3}/{max:<3} {}{}", "█".repeat(filled), "░".repeat(empty)))
 }
