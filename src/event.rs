@@ -33,6 +33,8 @@ pub enum AppEvent {
     SelectDown,
     Confirm,
     Back,
+    Left,
+    Right,
     Quit,
 }
 

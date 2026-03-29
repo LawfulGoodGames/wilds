@@ -1,6 +1,8 @@
 use crate::event::{AppEvent, Event, EventHandler};
+use crate::settings::{UserSettings, OPTIONS_COUNT};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::DefaultTerminal;
+use sqlx::SqlitePool;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MenuItem {
@@ -41,23 +43,23 @@ pub struct App {
     pub running: bool,
     pub selected: usize,
     pub screen: Screen,
+    pub options_cursor: usize,
+    pub settings: UserSettings,
+    pool: SqlitePool,
     pub events: EventHandler,
 }
 
-impl Default for App {
-    fn default() -> Self {
+impl App {
+    pub fn new(pool: SqlitePool, settings: UserSettings) -> Self {
         Self {
             running: true,
             selected: 0,
             screen: Screen::MainMenu,
+            options_cursor: 0,
+            settings,
+            pool,
             events: EventHandler::new(),
         }
-    }
-}
-
-impl App {
-    pub fn new() -> Self {
-        Self::default()
     }
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> color_eyre::Result<()> {
@@ -76,7 +78,9 @@ impl App {
                     AppEvent::SelectUp => self.select_up(),
                     AppEvent::SelectDown => self.select_down(),
                     AppEvent::Confirm => self.confirm(),
-                    AppEvent::Back => self.screen = Screen::MainMenu,
+                    AppEvent::Back => self.go_back().await?,
+                    AppEvent::Left => self.change_option(-1),
+                    AppEvent::Right => self.change_option(1),
                     AppEvent::Quit => self.quit(),
                 },
             }
@@ -96,6 +100,17 @@ impl App {
                 KeyCode::Enter => self.events.send(AppEvent::Confirm),
                 _ => {}
             },
+            Screen::Options => match key_event.code {
+                KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
+                KeyCode::Char('c' | 'C') if key_event.modifiers == KeyModifiers::CONTROL => {
+                    self.events.send(AppEvent::Quit)
+                }
+                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
+                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
+                KeyCode::Left | KeyCode::Char('h') => self.events.send(AppEvent::Left),
+                KeyCode::Right | KeyCode::Char('l') => self.events.send(AppEvent::Right),
+                _ => {}
+            },
             _ => match key_event.code {
                 KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
                 KeyCode::Char('c' | 'C') if key_event.modifiers == KeyModifiers::CONTROL => {
@@ -108,15 +123,39 @@ impl App {
     }
 
     fn select_up(&mut self) {
-        if self.selected > 0 {
-            self.selected -= 1;
+        let len = match self.screen {
+            Screen::MainMenu => MenuItem::ALL.len(),
+            Screen::Options => OPTIONS_COUNT,
+            _ => return,
+        };
+        if self.options_cursor_for_screen() > 0 {
+            *self.cursor_mut() -= 1;
         } else {
-            self.selected = MenuItem::ALL.len() - 1;
+            *self.cursor_mut() = len - 1;
         }
     }
 
     fn select_down(&mut self) {
-        self.selected = (self.selected + 1) % MenuItem::ALL.len();
+        let len = match self.screen {
+            Screen::MainMenu => MenuItem::ALL.len(),
+            Screen::Options => OPTIONS_COUNT,
+            _ => return,
+        };
+        *self.cursor_mut() = (self.options_cursor_for_screen() + 1) % len;
+    }
+
+    fn cursor_mut(&mut self) -> &mut usize {
+        match self.screen {
+            Screen::Options => &mut self.options_cursor,
+            _ => &mut self.selected,
+        }
+    }
+
+    fn options_cursor_for_screen(&self) -> usize {
+        match self.screen {
+            Screen::Options => self.options_cursor,
+            _ => self.selected,
+        }
     }
 
     fn confirm(&mut self) {
@@ -125,6 +164,53 @@ impl App {
             MenuItem::LoadGame => self.screen = Screen::LoadGame,
             MenuItem::Options => self.screen = Screen::Options,
             MenuItem::Quit => self.quit(),
+        }
+    }
+
+    async fn go_back(&mut self) -> color_eyre::Result<()> {
+        if self.screen == Screen::Options {
+            self.settings.save(&self.pool).await?;
+        }
+        self.screen = Screen::MainMenu;
+        Ok(())
+    }
+
+    fn change_option(&mut self, dir: i32) {
+        if self.screen != Screen::Options {
+            return;
+        }
+        match self.options_cursor {
+            0 => self.settings.sound_effects = !self.settings.sound_effects,
+            1 => {
+                if dir > 0 {
+                    self.settings.music_volume = self.settings.music_volume.saturating_add(10).min(100);
+                } else {
+                    self.settings.music_volume = self.settings.music_volume.saturating_sub(10);
+                }
+            }
+            2 => {
+                self.settings.font_size = if dir > 0 {
+                    self.settings.font_size.cycle_next()
+                } else {
+                    self.settings.font_size.cycle_prev()
+                };
+            }
+            3 => {
+                self.settings.color_theme = if dir > 0 {
+                    self.settings.color_theme.cycle_next()
+                } else {
+                    self.settings.color_theme.cycle_prev()
+                };
+            }
+            4 => self.settings.show_hints = !self.settings.show_hints,
+            5 => {
+                self.settings.difficulty = if dir > 0 {
+                    self.settings.difficulty.cycle_next()
+                } else {
+                    self.settings.difficulty.cycle_prev()
+                };
+            }
+            _ => {}
         }
     }
 
