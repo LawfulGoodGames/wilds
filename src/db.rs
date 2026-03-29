@@ -1,6 +1,7 @@
 use crate::character::{
     CharacterCreation, MajorSkill, MajorSkillData, MinorSkill, MinorSkillData, SavedCharacter,
 };
+use crate::inventory::InventoryItem;
 use sqlx::{Row, sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow}};
 use std::{collections::HashMap, str::FromStr};
 
@@ -49,6 +50,8 @@ pub async fn save_character(
         .execute(pool)
         .await?;
     }
+
+    seed_starting_inventory(pool, id).await?;
 
     Ok(id)
 }
@@ -144,6 +147,87 @@ pub async fn update_character_progress(
     .bind(xp as i64)
     .bind(gold as i64)
     .bind(character_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+
+pub async fn seed_starting_inventory(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<()> {
+    let starters = [
+        ("health_potion", 3i64),
+        ("bandage", 2),
+        ("ration", 1),
+    ];
+    for (item_type, qty) in starters {
+        sqlx::query(
+            "INSERT OR IGNORE INTO inventory (character_id, item_type, quantity)
+             VALUES (?1, ?2, ?3)",
+        )
+        .bind(character_id)
+        .bind(item_type)
+        .bind(qty)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
+pub async fn load_inventory(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<Vec<InventoryItem>> {
+    let rows = sqlx::query(
+        "SELECT item_type, quantity FROM inventory
+         WHERE character_id = ?1 AND quantity > 0
+         ORDER BY item_type",
+    )
+    .bind(character_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| InventoryItem {
+            item_type: r.get("item_type"),
+            quantity:  r.get::<i64, _>("quantity") as i32,
+        })
+        .collect())
+}
+
+pub async fn add_item(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    item_type: &str,
+    quantity: i32,
+) -> color_eyre::Result<()> {
+    sqlx::query(
+        "INSERT INTO inventory (character_id, item_type, quantity) VALUES (?1, ?2, ?3)
+         ON CONFLICT(character_id, item_type) DO UPDATE SET quantity = quantity + excluded.quantity",
+    )
+    .bind(character_id)
+    .bind(item_type)
+    .bind(quantity as i64)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn decrement_item(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    item_type: &str,
+) -> color_eyre::Result<()> {
+    sqlx::query(
+        "UPDATE inventory SET quantity = quantity - 1
+         WHERE character_id = ?1 AND item_type = ?2 AND quantity > 0",
+    )
+    .bind(character_id)
+    .bind(item_type)
     .execute(pool)
     .await?;
     Ok(())

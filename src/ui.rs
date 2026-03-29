@@ -9,6 +9,7 @@ use ratatui::{
 use crate::app::{App, MenuItem, Screen};
 use crate::character::{Class, CreationStep, GearPackage, Race, STAT_FULL, STAT_LABELS};
 use crate::combat::{AttackKind, Turn};
+use crate::inventory::ItemKind;
 
 const TITLE: &str = r"
  __        _____ _     ____  ____
@@ -45,6 +46,7 @@ impl Widget for &App {
             Screen::Options          => render_options(self, area, buf),
             Screen::LoadGame         => render_load_game(self, area, buf),
             Screen::Skills           => render_skills(self, area, buf),
+            Screen::Inventory        => render_inventory(self, area, buf),
             Screen::InGame           => render_in_game(self, area, buf),
             Screen::Combat           => render_combat(self, area, buf),
         }
@@ -610,7 +612,7 @@ fn render_in_game(app: &App, area: Rect, buf: &mut Buffer) {
         .alignment(Alignment::Center)
         .render(chunks[1], buf);
 
-    hint_bar("f  fight test encounter    s  skills    Esc  main menu", chunks[2], buf);
+    hint_bar("f  fight    i  inventory    s  skills    Esc  main menu", chunks[2], buf);
 }
 
 // ── Combat ────────────────────────────────────────────────────────────────────
@@ -853,6 +855,110 @@ fn render_skills(app: &App, area: Rect, buf: &mut Buffer) {
         .render(panels[1], buf);
 
     hint_bar("↑ ↓ / j k  navigate    Esc  back to game", chunks[1], buf);
+}
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+
+fn render_inventory(app: &App, area: Rect, buf: &mut Buffer) {
+    let outer = Block::bordered()
+        .title(" Inventory ")
+        .title_alignment(Alignment::Center)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(GOLD));
+    let inner = outer.inner(area);
+    outer.render(area, buf);
+
+    let chunks = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(1), // use message
+        Constraint::Length(2), // hint bar
+    ])
+    .split(inner);
+
+    let panels =
+        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).split(chunks[0]);
+
+    let inv = &app.inventory;
+
+    // ── Left: item list ───────────────────────────────────────────────────────
+    let list_lines: Vec<Line> = if inv.items.is_empty() {
+        vec![Line::from(Span::styled("  (empty)", dim_style()))]
+    } else {
+        inv.items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let name = item.def().map(|d| d.name).unwrap_or(&item.item_type);
+                let qty = format!("x{}", item.quantity);
+                if i == inv.cursor {
+                    Line::from(vec![
+                        Span::styled(format!("▶ {:<22}", name), selected_style()),
+                        Span::styled(format!(" {:<4}", qty), selected_style()),
+                    ])
+                } else {
+                    Line::from(vec![
+                        Span::styled(format!("  {:<22}", name), normal_style()),
+                        Span::styled(format!(" {:<4}", qty), dim_style()),
+                    ])
+                }
+            })
+            .collect()
+    };
+
+    Paragraph::new(list_lines)
+        .block(Block::bordered().title(" Items ").border_type(BorderType::Rounded).style(dim_style()))
+        .render(panels[0], buf);
+
+    // ── Right: detail panel ───────────────────────────────────────────────────
+    let detail_lines: Vec<Line> = match inv.selected_def() {
+        None => vec![Line::from(Span::styled("No item selected.", dim_style()))],
+        Some(def) => {
+            let kind_color = match def.kind {
+                ItemKind::Consumable => Color::Green,
+                ItemKind::Equipment  => Color::Cyan,
+                ItemKind::Quest      => Color::Magenta,
+            };
+            let mut lines = vec![
+                Line::from(Span::styled(def.name, Style::default().fg(GOLD).add_modifier(Modifier::BOLD))),
+                Line::from(""),
+                Line::from(Span::styled(def.description, normal_style())),
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("[{}]", def.kind.label()),
+                    Style::default().fg(kind_color),
+                )),
+            ];
+            if def.heal_amount > 0 {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    format!("Restores {} HP on use.", def.heal_amount),
+                    Style::default().fg(Color::Red),
+                )));
+            }
+            if def.is_usable() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "Enter / u  — use item",
+                    dim_style(),
+                )));
+            }
+            lines
+        }
+    };
+
+    Paragraph::new(detail_lines)
+        .block(Block::bordered().title(" Details ").border_type(BorderType::Rounded).style(dim_style()))
+        .wrap(ratatui::widgets::Wrap { trim: false })
+        .render(panels[1], buf);
+
+    // ── Use message ───────────────────────────────────────────────────────────
+    if let Some(msg) = &inv.last_use_message {
+        Paragraph::new(Span::styled(msg.as_str(), Style::default().fg(Color::Green)))
+            .alignment(Alignment::Center)
+            .render(chunks[1], buf);
+    }
+
+    hint_bar("↑ ↓ / j k  navigate    Enter / u  use    Esc  back", chunks[2], buf);
 }
 
 fn skill_progress_bar(pct: f64, width: usize) -> String {

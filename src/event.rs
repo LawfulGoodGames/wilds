@@ -46,6 +46,8 @@ pub enum AppEvent {
     CombatUseSelected,
     CombatDefend,
     CombatFlee,
+    OpenInventory,
+    InventoryUse,
     Quit,
 }
 

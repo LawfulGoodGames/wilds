@@ -1,6 +1,7 @@
 use crate::character::{CharacterCreation, Class, CreationStep, GearPackage, Race, SavedCharacter};
 use crate::combat::{AttackKind, CombatOutcome, CombatState, PlayerAction};
 use crate::event::{AppEvent, Event, EventHandler};
+use crate::inventory::InventoryState;
 use crate::settings::{UserSettings, OPTIONS_COUNT};
 use crate::db;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -41,6 +42,7 @@ pub enum Screen {
     Options,
     InGame,
     Skills,
+    Inventory,
     Combat,
 }
 
@@ -61,6 +63,7 @@ pub struct App {
     pub active_character: Option<SavedCharacter>,
     pub combat: Option<CombatState>,
     pub minor_skills_cursor: usize,
+    pub inventory: InventoryState,
     pool: SqlitePool,
     pub events: EventHandler,
 }
@@ -79,6 +82,7 @@ impl App {
             active_character: None,
             combat: None,
             minor_skills_cursor: 0,
+            inventory: InventoryState::default(),
             pool,
             events: EventHandler::new(),
         }
@@ -114,6 +118,8 @@ impl App {
                     AppEvent::CombatUseSelected => self.handle_combat_action(PlayerAction::UseSelectedAttack).await?,
                     AppEvent::CombatDefend => self.handle_combat_action(PlayerAction::Defend).await?,
                     AppEvent::CombatFlee => self.handle_combat_action(PlayerAction::Flee).await?,
+                    AppEvent::OpenInventory => self.open_inventory().await?,
+                    AppEvent::InventoryUse  => self.use_inventory_item().await?,
                     AppEvent::Quit       => self.quit(),
                 },
             }
@@ -184,7 +190,16 @@ impl App {
 
             Screen::InGame => match key_event.code {
                 KeyCode::Char('s') => self.events.send(AppEvent::OpenSkills),
+                KeyCode::Char('i') => self.events.send(AppEvent::OpenInventory),
                 KeyCode::Char('f') => self.events.send(AppEvent::StartCombat),
+                KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
+                _ => {}
+            },
+
+            Screen::Inventory => match key_event.code {
+                KeyCode::Up   | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
+                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
+                KeyCode::Enter | KeyCode::Char('u') => self.events.send(AppEvent::InventoryUse),
                 KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
                 _ => {}
             },
@@ -224,6 +239,7 @@ impl App {
                     cycle_cursor(&mut self.minor_skills_cursor, -1, ch.minor_skills.len());
                 }
             }
+            Screen::Inventory => self.inventory.cursor_up(),
             Screen::LoadGame  => {
                 if !self.saved_characters.is_empty() {
                     cycle_cursor(&mut self.load_cursor, -1, self.saved_characters.len());
@@ -249,6 +265,7 @@ impl App {
                     cycle_cursor(&mut self.minor_skills_cursor, 1, ch.minor_skills.len());
                 }
             }
+            Screen::Inventory => self.inventory.cursor_down(),
             Screen::LoadGame  => {
                 if !self.saved_characters.is_empty() {
                     cycle_cursor(&mut self.load_cursor, 1, self.saved_characters.len());
@@ -339,7 +356,7 @@ impl App {
                     self.creation.step = self.creation.step.prev();
                 }
             }
-            Screen::Skills => {
+            Screen::Skills | Screen::Inventory => {
                 self.screen = Screen::InGame;
             }
             Screen::InGame => {
@@ -458,6 +475,48 @@ impl App {
 
         self.combat = None;
         self.screen = Screen::InGame;
+        Ok(())
+    }
+
+    // ── Inventory ─────────────────────────────────────────────────────────────
+
+    async fn open_inventory(&mut self) -> color_eyre::Result<()> {
+        let Some(ch) = &self.active_character else { return Ok(()); };
+        let items = db::load_inventory(&self.pool, ch.id).await?;
+        self.inventory.items = items;
+        self.inventory.cursor = 0;
+        self.inventory.last_use_message = None;
+        self.screen = Screen::Inventory;
+        Ok(())
+    }
+
+    async fn use_inventory_item(&mut self) -> color_eyre::Result<()> {
+        let Some(item) = self.inventory.selected().cloned() else { return Ok(()); };
+        let Some(def) = item.def() else { return Ok(()); };
+        if !def.is_usable() {
+            self.inventory.last_use_message = Some(format!("{} cannot be used.", def.name));
+            return Ok(());
+        }
+
+        let Some(ch) = self.active_character.as_mut() else { return Ok(()); };
+
+        let message = if def.heal_amount > 0 {
+            let before = ch.hp;
+            ch.hp = (ch.hp + def.heal_amount).min(ch.max_hp);
+            let healed = ch.hp - before;
+            db::update_character_progress(&self.pool, ch.id, ch.hp, ch.xp, ch.gold).await?;
+            format!("Used {}. Restored {} HP.", def.name, healed)
+        } else {
+            format!("Used {}. No effect.", def.name)
+        };
+
+        let character_id = ch.id;
+        db::decrement_item(&self.pool, character_id, &item.item_type).await?;
+
+        let items = db::load_inventory(&self.pool, character_id).await?;
+        self.inventory.items = items;
+        self.inventory.clamp_cursor();
+        self.inventory.last_use_message = Some(message);
         Ok(())
     }
 }
