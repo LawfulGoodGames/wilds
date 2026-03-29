@@ -332,7 +332,7 @@ pub const AREAS: &[AreaDef] = &[
         name: "Whispering Woods",
         description: "Dense tree cover and restless beasts just beyond the watchfires.",
         danger: "Low",
-        encounters: &["beast_hunt", "beast_alpha"],
+        encounters: &["beast_hunt", "beast_hunt", "beast_alpha"],
         event_text: "You find claw-marked trees and abandoned campfire embers beneath the pines.",
     },
     AreaDef {
@@ -364,4 +364,3 @@ pub fn vendor_def(id: VendorId) -> &'static VendorDef {
 pub fn area_def(id: AreaId) -> &'static AreaDef {
     AREAS.iter().find(|area| area.id == id).unwrap_or(&AREAS[0])
 }
-

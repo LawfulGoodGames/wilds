@@ -429,6 +429,20 @@ impl CombatState {
         self.selected_target = alive[next];
     }
 
+    fn auto_select_alive_target(&mut self) {
+        if self
+            .enemies
+            .get(self.selected_target)
+            .map(|enemy| enemy.is_alive())
+            .unwrap_or(false)
+        {
+            return;
+        }
+        if let Some((idx, _)) = self.enemies.iter().enumerate().find(|(_, enemy)| enemy.is_alive()) {
+            self.selected_target = idx;
+        }
+    }
+
     pub fn cycle_selection(&mut self, dir: i32) {
         let len = match self.action_tab {
             ActionTab::Weapon => self.player.weapon_attacks.len(),
@@ -487,6 +501,14 @@ impl CombatState {
 
         self.tick_statuses_for_player(StatusTiming::TurnEnd);
         self.finish_player_phase(start_len)
+    }
+
+    pub fn begin_encounter(&mut self) -> CombatOutcome {
+        if self.current_turn() == TurnRef::Player {
+            CombatOutcome::Ongoing
+        } else {
+            self.resolve_enemy_round()
+        }
     }
 
     fn finish_player_phase(&mut self, start_len: usize) -> CombatOutcome {
@@ -841,6 +863,7 @@ impl CombatState {
             if let Some((status, duration, potency)) = self_status {
                 self.apply_status_to_player(status, duration, potency, label);
             }
+            self.auto_select_alive_target();
         }
         self.log.push(CombatLogEvent::AttackResolved {
             actor: if player_is_actor { self.player.name.clone() } else { "Enemy".to_string() },
@@ -1126,22 +1149,22 @@ pub const ABILITIES: &[AbilityDef] = &[
     AbilityDef { id: "healing_prayer", name: "Healing Prayer", description: "A brief prayer that restores life and steadies the soul.", resource_kind: Some(ResourceKind::Mana), cost: 8, cooldown: 2, target: AbilityTarget::SelfTarget, accuracy_bonus: 0, damage_min: 0, damage_max: 0, damage_type: DamageType::Holy, scaling_stat: MajorSkill::Wisdom, apply_status: None, self_status: Some((StatusKind::Regen, 2, 5)), heal_amount: 16 },
     AbilityDef { id: "smite_undead", name: "Smite Undead", description: "Condemn unquiet dead with radiant force.", resource_kind: Some(ResourceKind::Mana), cost: 9, cooldown: 2, target: AbilityTarget::Enemy, accuracy_bonus: 3, damage_min: 8, damage_max: 12, damage_type: DamageType::Holy, scaling_stat: MajorSkill::Wisdom, apply_status: None, self_status: None, heal_amount: 0 },
     AbilityDef { id: "purge", name: "Purge", description: "Scour toxins and foul magic from the field.", resource_kind: Some(ResourceKind::Mana), cost: 10, cooldown: 3, target: AbilityTarget::Enemy, accuracy_bonus: 2, damage_min: 6, damage_max: 10, damage_type: DamageType::Holy, scaling_stat: MajorSkill::Wisdom, apply_status: Some((StatusKind::Weakness, 2, 2)), self_status: Some((StatusKind::Regen, 1, 4)), heal_amount: 0 },
-    AbilityDef { id: "rabid_bite", name: "Rabid Bite", description: "A savage bite that leaves venom in the wound.", resource_kind: None, cost: 0, cooldown: 2, target: AbilityTarget::Enemy, accuracy_bonus: 2, damage_min: 5, damage_max: 8, damage_type: DamageType::Poison, scaling_stat: MajorSkill::Strength, apply_status: Some((StatusKind::Poison, 2, 3)), self_status: None, heal_amount: 0 },
-    AbilityDef { id: "raider_gash", name: "Raider Gash", description: "A brutal slash meant to leave the target bleeding.", resource_kind: None, cost: 0, cooldown: 2, target: AbilityTarget::Enemy, accuracy_bonus: 1, damage_min: 6, damage_max: 10, damage_type: DamageType::Physical, scaling_stat: MajorSkill::Strength, apply_status: Some((StatusKind::Bleed, 2, 3)), self_status: None, heal_amount: 0 },
-    AbilityDef { id: "grave_bolt", name: "Grave Bolt", description: "A cold shard of necrotic force from the barrow dead.", resource_kind: Some(ResourceKind::Mana), cost: 5, cooldown: 1, target: AbilityTarget::Enemy, accuracy_bonus: 2, damage_min: 6, damage_max: 10, damage_type: DamageType::Shadow, scaling_stat: MajorSkill::Intelligence, apply_status: Some((StatusKind::Weakness, 2, 1)), self_status: None, heal_amount: 0 },
+    AbilityDef { id: "rabid_bite", name: "Rabid Bite", description: "A savage bite that leaves venom in the wound.", resource_kind: None, cost: 0, cooldown: 3, target: AbilityTarget::Enemy, accuracy_bonus: 1, damage_min: 4, damage_max: 6, damage_type: DamageType::Poison, scaling_stat: MajorSkill::Strength, apply_status: Some((StatusKind::Poison, 2, 2)), self_status: None, heal_amount: 0 },
+    AbilityDef { id: "raider_gash", name: "Raider Gash", description: "A brutal slash meant to leave the target bleeding.", resource_kind: None, cost: 0, cooldown: 3, target: AbilityTarget::Enemy, accuracy_bonus: 1, damage_min: 5, damage_max: 8, damage_type: DamageType::Physical, scaling_stat: MajorSkill::Strength, apply_status: Some((StatusKind::Bleed, 2, 2)), self_status: None, heal_amount: 0 },
+    AbilityDef { id: "grave_bolt", name: "Grave Bolt", description: "A cold shard of necrotic force from the barrow dead.", resource_kind: Some(ResourceKind::Mana), cost: 5, cooldown: 2, target: AbilityTarget::Enemy, accuracy_bonus: 1, damage_min: 5, damage_max: 8, damage_type: DamageType::Shadow, scaling_stat: MajorSkill::Intelligence, apply_status: Some((StatusKind::Weakness, 2, 1)), self_status: None, heal_amount: 0 },
 ];
 
 pub const ENEMIES: &[EnemyDef] = &[
-    EnemyDef { id: "wild_wolf", name: "Wild Wolf", family: "Beast", role: EnemyRole::Skirmisher, level: 1, hp: 34, mana: 0, stamina: 12, attack_bonus: 4, defense: 12, initiative: 4, damage_min: 4, damage_max: 7, weapon_kind: WeaponKind::Melee, ability_ids: &["rabid_bite"], loot: WOLF_LOOT, reward_xp: 24, reward_gold: 10 },
-    EnemyDef { id: "alpha_wolf", name: "Alpha Wolf", family: "Beast", role: EnemyRole::Brute, level: 2, hp: 42, mana: 0, stamina: 16, attack_bonus: 5, defense: 13, initiative: 3, damage_min: 6, damage_max: 9, weapon_kind: WeaponKind::Melee, ability_ids: &["rabid_bite"], loot: WOLF_LOOT, reward_xp: 34, reward_gold: 14 },
-    EnemyDef { id: "road_raider", name: "Road Raider", family: "Bandit", role: EnemyRole::Brute, level: 2, hp: 40, mana: 0, stamina: 16, attack_bonus: 5, defense: 13, initiative: 3, damage_min: 5, damage_max: 9, weapon_kind: WeaponKind::Melee, ability_ids: &["raider_gash"], loot: BANDIT_LOOT, reward_xp: 32, reward_gold: 18 },
-    EnemyDef { id: "bandit_bowman", name: "Bandit Bowman", family: "Bandit", role: EnemyRole::Skirmisher, level: 2, hp: 32, mana: 0, stamina: 14, attack_bonus: 6, defense: 12, initiative: 5, damage_min: 4, damage_max: 8, weapon_kind: WeaponKind::Ranged, ability_ids: &[], loot: BANDIT_LOOT, reward_xp: 28, reward_gold: 16 },
-    EnemyDef { id: "gravebound", name: "Gravebound", family: "Undead", role: EnemyRole::Brute, level: 3, hp: 48, mana: 6, stamina: 14, attack_bonus: 6, defense: 14, initiative: 2, damage_min: 6, damage_max: 10, weapon_kind: WeaponKind::Melee, ability_ids: &["grave_bolt"], loot: UNDEAD_LOOT, reward_xp: 40, reward_gold: 22 },
-    EnemyDef { id: "grave_channeler", name: "Grave Channeler", family: "Undead", role: EnemyRole::Caster, level: 3, hp: 36, mana: 20, stamina: 10, attack_bonus: 5, defense: 13, initiative: 4, damage_min: 4, damage_max: 7, weapon_kind: WeaponKind::Magic, ability_ids: &["grave_bolt"], loot: UNDEAD_LOOT, reward_xp: 44, reward_gold: 26 },
+    EnemyDef { id: "wild_wolf", name: "Wild Wolf", family: "Beast", role: EnemyRole::Skirmisher, level: 1, hp: 24, mana: 0, stamina: 10, attack_bonus: 3, defense: 10, initiative: 3, damage_min: 3, damage_max: 5, weapon_kind: WeaponKind::Melee, ability_ids: &["rabid_bite"], loot: WOLF_LOOT, reward_xp: 20, reward_gold: 8 },
+    EnemyDef { id: "alpha_wolf", name: "Alpha Wolf", family: "Beast", role: EnemyRole::Brute, level: 2, hp: 32, mana: 0, stamina: 12, attack_bonus: 4, defense: 11, initiative: 2, damage_min: 4, damage_max: 7, weapon_kind: WeaponKind::Melee, ability_ids: &["rabid_bite"], loot: WOLF_LOOT, reward_xp: 28, reward_gold: 12 },
+    EnemyDef { id: "road_raider", name: "Road Raider", family: "Bandit", role: EnemyRole::Brute, level: 2, hp: 32, mana: 0, stamina: 14, attack_bonus: 4, defense: 11, initiative: 2, damage_min: 4, damage_max: 7, weapon_kind: WeaponKind::Melee, ability_ids: &["raider_gash"], loot: BANDIT_LOOT, reward_xp: 28, reward_gold: 15 },
+    EnemyDef { id: "bandit_bowman", name: "Bandit Bowman", family: "Bandit", role: EnemyRole::Skirmisher, level: 2, hp: 26, mana: 0, stamina: 12, attack_bonus: 4, defense: 10, initiative: 4, damage_min: 3, damage_max: 6, weapon_kind: WeaponKind::Ranged, ability_ids: &[], loot: BANDIT_LOOT, reward_xp: 24, reward_gold: 12 },
+    EnemyDef { id: "gravebound", name: "Gravebound", family: "Undead", role: EnemyRole::Brute, level: 3, hp: 38, mana: 4, stamina: 12, attack_bonus: 5, defense: 12, initiative: 2, damage_min: 5, damage_max: 8, weapon_kind: WeaponKind::Melee, ability_ids: &["grave_bolt"], loot: UNDEAD_LOOT, reward_xp: 34, reward_gold: 18 },
+    EnemyDef { id: "grave_channeler", name: "Grave Channeler", family: "Undead", role: EnemyRole::Caster, level: 3, hp: 28, mana: 16, stamina: 8, attack_bonus: 4, defense: 11, initiative: 3, damage_min: 3, damage_max: 6, weapon_kind: WeaponKind::Magic, ability_ids: &["grave_bolt"], loot: UNDEAD_LOOT, reward_xp: 38, reward_gold: 22 },
 ];
 
 pub const ENCOUNTERS: &[EncounterDef] = &[
-    EncounterDef { id: "beast_hunt", name: "Beast Hunt", environment_tags: &["woods", "brush"], enemies: &["wild_wolf", "wild_wolf"] },
+    EncounterDef { id: "beast_hunt", name: "Beast Hunt", environment_tags: &["woods", "brush"], enemies: &["wild_wolf"] },
     EncounterDef { id: "beast_alpha", name: "Alpha Pack", environment_tags: &["woods", "moonlit"], enemies: &["alpha_wolf", "wild_wolf"] },
     EncounterDef { id: "bandit_ambush", name: "Bandit Ambush", environment_tags: &["road", "ditch"], enemies: &["road_raider", "bandit_bowman"] },
     EncounterDef { id: "bandit_raiders", name: "Raider Patrol", environment_tags: &["road", "rain"], enemies: &["road_raider", "road_raider"] },
@@ -1224,7 +1247,7 @@ mod tests {
 
     #[test]
     fn encounter_defs_exist() {
-        assert_eq!(encounter_def("beast_hunt").enemies.len(), 2);
+        assert_eq!(encounter_def("beast_hunt").enemies.len(), 1);
         assert!(ability_def("cleaving_blow").is_some());
     }
 
@@ -1298,5 +1321,26 @@ mod tests {
         let _ = combat.resolve_player_action(PlayerAction::UseItem);
         assert!(combat.player.resources.hp > 10);
         assert_eq!(combat.consumables[0].quantity, 1);
+    }
+
+    #[test]
+    fn opening_enemy_turn_resolves_before_player_input() {
+        let mut combat = CombatState::from_character_and_encounter(
+            &test_character(Class::Warrior),
+            &test_equipment(),
+            &[],
+            "beast_hunt",
+        );
+        let enemy_first = combat
+            .initiative
+            .iter()
+            .position(|turn| matches!(turn, TurnRef::Enemy(_)))
+            .unwrap_or(0);
+        combat.turn_index = enemy_first;
+
+        let outcome = combat.begin_encounter();
+
+        assert!(matches!(outcome, CombatOutcome::Ongoing));
+        assert_eq!(combat.current_turn(), TurnRef::Player);
     }
 }

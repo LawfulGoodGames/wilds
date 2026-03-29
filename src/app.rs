@@ -755,12 +755,18 @@ impl App {
         let Some(ch) = &self.active_character else { return Ok(()); };
         self.inventory.items = db::load_inventory(&self.pool, ch.id).await?;
         self.equipment = db::load_equipment(&self.pool, ch.id).await?;
-        self.combat = Some(CombatState::from_character_and_encounter(
+        let mut combat = CombatState::from_character_and_encounter(
             ch,
             &self.equipment,
             &self.inventory.items,
             encounter_id,
-        ));
+        );
+        let opening_outcome = combat.begin_encounter();
+        self.combat = Some(combat);
+        if !matches!(opening_outcome, CombatOutcome::Ongoing) {
+            self.finish_combat(opening_outcome).await?;
+            return Ok(());
+        }
         self.screen = Screen::Combat;
         Ok(())
     }

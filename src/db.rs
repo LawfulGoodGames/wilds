@@ -17,9 +17,9 @@ pub async fn init() -> color_eyre::Result<sqlx::SqlitePool> {
 pub async fn save_character(pool: &sqlx::SqlitePool, creation: &CharacterCreation) -> color_eyre::Result<i64> {
     let class = creation.selected_class();
     let stats = creation.final_stats();
-    let max_hp = 72 + stats.modifier(crate::character::MajorSkill::Constitution) * 4;
-    let max_mana = 16 + mana_growth(class) * 2 + stats.modifier(crate::character::MajorSkill::Wisdom).max(0) * 2;
-    let max_stamina = 18 + stamina_growth(class) * 2 + stats.modifier(crate::character::MajorSkill::Constitution).max(0) * 2;
+    let max_hp = 88 + stats.modifier(crate::character::MajorSkill::Constitution) * 5;
+    let max_mana = 20 + mana_growth(class) * 2 + stats.modifier(crate::character::MajorSkill::Wisdom).max(0) * 3;
+    let max_stamina = 24 + stamina_growth(class) * 2 + stats.modifier(crate::character::MajorSkill::Constitution).max(0) * 3;
 
     let id = sqlx::query(
         "INSERT INTO characters
@@ -442,4 +442,3 @@ fn split_csv(value: String) -> Vec<String> {
 fn join_csv(values: &[String]) -> String {
     values.join(",")
 }
-
