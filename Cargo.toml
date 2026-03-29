@@ -1,0 +1,23 @@
+[package]
+name = "wilds"
+version = "0.1.0"
+description = "Local TUI RPG"
+authors = ["Christopher Law <christopher-law@live.com>"]
+license = "MIT"
+edition = "2024"
+
+[dependencies]
+crossterm = { version = "0.28.1", features = ["event-stream"] }
+futures = "0.3.31"
+ratatui = "0.30.0"
+tokio = { version = "1.40.0", features = ["full"] }
+color-eyre = "0.6.3"
+serde = { version = "1.0.228", features = ["derive"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "sqlite", "macros"] }
+
+# Read the optimization guideline for more details: https://ratatui.rs/recipes/apps/release-your-app/#optimizations
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
