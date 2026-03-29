@@ -1,5 +1,7 @@
+use crate::character::{CharacterCreation, Class, CreationStep, GearPackage, Race, SavedCharacter};
 use crate::event::{AppEvent, Event, EventHandler};
 use crate::settings::{UserSettings, OPTIONS_COUNT};
+use crate::db;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::DefaultTerminal;
 use sqlx::SqlitePool;
@@ -22,10 +24,10 @@ impl MenuItem {
 
     pub fn label(&self) -> &str {
         match self {
-            MenuItem::NewGame => "New Game",
+            MenuItem::NewGame  => "New Game",
             MenuItem::LoadGame => "Load Game",
-            MenuItem::Options => "Options",
-            MenuItem::Quit => "Quit",
+            MenuItem::Options  => "Options",
+            MenuItem::Quit     => "Quit",
         }
     }
 }
@@ -33,9 +35,10 @@ impl MenuItem {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Screen {
     MainMenu,
-    NewGame,
+    CharacterCreation,
     LoadGame,
     Options,
+    InGame,
 }
 
 #[derive(Debug)]
@@ -43,8 +46,16 @@ pub struct App {
     pub running: bool,
     pub selected: usize,
     pub screen: Screen,
+    // Options
     pub options_cursor: usize,
     pub settings: UserSettings,
+    // Character creation
+    pub creation: CharacterCreation,
+    // Load game
+    pub saved_characters: Vec<SavedCharacter>,
+    pub load_cursor: usize,
+    // Active game session
+    pub active_character: Option<SavedCharacter>,
     pool: SqlitePool,
     pub events: EventHandler,
 }
@@ -57,6 +68,10 @@ impl App {
             screen: Screen::MainMenu,
             options_cursor: 0,
             settings,
+            creation: CharacterCreation::default(),
+            saved_characters: Vec::new(),
+            load_cursor: 0,
+            active_character: None,
             pool,
             events: EventHandler::new(),
         }
@@ -75,110 +90,216 @@ impl App {
                     }
                 }
                 Event::App(app_event) => match app_event {
-                    AppEvent::SelectUp => self.select_up(),
+                    AppEvent::SelectUp   => self.select_up(),
                     AppEvent::SelectDown => self.select_down(),
-                    AppEvent::Confirm => self.confirm(),
-                    AppEvent::Back => self.go_back().await?,
-                    AppEvent::Left => self.change_option(-1),
-                    AppEvent::Right => self.change_option(1),
-                    AppEvent::Quit => self.quit(),
+                    AppEvent::Confirm    => self.confirm().await?,
+                    AppEvent::Back       => self.go_back().await?,
+                    AppEvent::Left       => self.handle_left(),
+                    AppEvent::Right      => self.handle_right(),
+                    AppEvent::Quit       => self.quit(),
                 },
             }
         }
         Ok(())
     }
 
+    // ── Input routing ─────────────────────────────────────────────────────────
+
     pub fn handle_key_events(&mut self, key_event: KeyEvent) -> color_eyre::Result<()> {
+        if key_event.modifiers == KeyModifiers::CONTROL
+            && matches!(key_event.code, KeyCode::Char('c' | 'C'))
+        {
+            self.events.send(AppEvent::Quit);
+            return Ok(());
+        }
+
         match self.screen {
             Screen::MainMenu => match key_event.code {
                 KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Quit),
-                KeyCode::Char('c' | 'C') if key_event.modifiers == KeyModifiers::CONTROL => {
-                    self.events.send(AppEvent::Quit)
-                }
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
+                KeyCode::Up   | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
                 KeyCode::Enter => self.events.send(AppEvent::Confirm),
                 _ => {}
             },
+
+            Screen::CharacterCreation => match self.creation.step {
+                CreationStep::Name => match key_event.code {
+                    KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                        if self.creation.name.len() < 24 {
+                            self.creation.name.push(c);
+                        }
+                    }
+                    KeyCode::Backspace => { self.creation.name.pop(); }
+                    KeyCode::Enter if !self.creation.name.trim().is_empty() => {
+                        self.events.send(AppEvent::Confirm);
+                    }
+                    KeyCode::Esc => self.events.send(AppEvent::Back),
+                    _ => {}
+                },
+                _ => match key_event.code {
+                    KeyCode::Up   | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
+                    KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
+                    KeyCode::Left  | KeyCode::Char('h') => self.events.send(AppEvent::Left),
+                    KeyCode::Right | KeyCode::Char('l') => self.events.send(AppEvent::Right),
+                    KeyCode::Enter => self.events.send(AppEvent::Confirm),
+                    KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
+                    _ => {}
+                },
+            },
+
+            Screen::LoadGame => match key_event.code {
+                KeyCode::Up   | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
+                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
+                KeyCode::Enter => self.events.send(AppEvent::Confirm),
+                KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
+                _ => {}
+            },
+
             Screen::Options => match key_event.code {
                 KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
-                KeyCode::Char('c' | 'C') if key_event.modifiers == KeyModifiers::CONTROL => {
-                    self.events.send(AppEvent::Quit)
-                }
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
+                KeyCode::Up   | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Left | KeyCode::Char('h') => self.events.send(AppEvent::Left),
+                KeyCode::Left  | KeyCode::Char('h') => self.events.send(AppEvent::Left),
                 KeyCode::Right | KeyCode::Char('l') => self.events.send(AppEvent::Right),
                 _ => {}
             },
+
             _ => match key_event.code {
                 KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
-                KeyCode::Char('c' | 'C') if key_event.modifiers == KeyModifiers::CONTROL => {
-                    self.events.send(AppEvent::Quit)
-                }
                 _ => {}
             },
         }
         Ok(())
     }
 
+    // ── Navigation ────────────────────────────────────────────────────────────
+
     fn select_up(&mut self) {
-        let len = match self.screen {
-            Screen::MainMenu => MenuItem::ALL.len(),
-            Screen::Options => OPTIONS_COUNT,
-            _ => return,
-        };
-        if self.options_cursor_for_screen() > 0 {
-            *self.cursor_mut() -= 1;
-        } else {
-            *self.cursor_mut() = len - 1;
+        match self.screen {
+            Screen::MainMenu  => cycle_cursor(&mut self.selected, -1, MenuItem::ALL.len()),
+            Screen::Options   => cycle_cursor(&mut self.options_cursor, -1, OPTIONS_COUNT),
+            Screen::LoadGame  => {
+                if !self.saved_characters.is_empty() {
+                    cycle_cursor(&mut self.load_cursor, -1, self.saved_characters.len());
+                }
+            }
+            Screen::CharacterCreation => match self.creation.step {
+                CreationStep::Race  => cycle_cursor(&mut self.creation.race_cursor,  -1, Race::ALL.len()),
+                CreationStep::Class => cycle_cursor(&mut self.creation.class_cursor, -1, Class::ALL.len()),
+                CreationStep::Stats => cycle_cursor(&mut self.creation.stat_cursor,  -1, 6),
+                CreationStep::Gear  => cycle_cursor(&mut self.creation.gear_cursor,  -1, GearPackage::ALL.len()),
+                _ => {}
+            },
+            _ => {}
         }
     }
 
     fn select_down(&mut self) {
-        let len = match self.screen {
-            Screen::MainMenu => MenuItem::ALL.len(),
-            Screen::Options => OPTIONS_COUNT,
-            _ => return,
-        };
-        *self.cursor_mut() = (self.options_cursor_for_screen() + 1) % len;
-    }
-
-    fn cursor_mut(&mut self) -> &mut usize {
         match self.screen {
-            Screen::Options => &mut self.options_cursor,
-            _ => &mut self.selected,
+            Screen::MainMenu  => cycle_cursor(&mut self.selected, 1, MenuItem::ALL.len()),
+            Screen::Options   => cycle_cursor(&mut self.options_cursor, 1, OPTIONS_COUNT),
+            Screen::LoadGame  => {
+                if !self.saved_characters.is_empty() {
+                    cycle_cursor(&mut self.load_cursor, 1, self.saved_characters.len());
+                }
+            }
+            Screen::CharacterCreation => match self.creation.step {
+                CreationStep::Race  => cycle_cursor(&mut self.creation.race_cursor,  1, Race::ALL.len()),
+                CreationStep::Class => cycle_cursor(&mut self.creation.class_cursor, 1, Class::ALL.len()),
+                CreationStep::Stats => cycle_cursor(&mut self.creation.stat_cursor,  1, 6),
+                CreationStep::Gear  => cycle_cursor(&mut self.creation.gear_cursor,  1, GearPackage::ALL.len()),
+                _ => {}
+            },
+            _ => {}
         }
     }
 
-    fn options_cursor_for_screen(&self) -> usize {
+    fn handle_left(&mut self) {
         match self.screen {
-            Screen::Options => self.options_cursor,
-            _ => self.selected,
+            Screen::Options            => self.change_option(-1),
+            Screen::CharacterCreation  => self.creation.adjust_stat(-1),
+            _ => {}
         }
     }
 
-    fn confirm(&mut self) {
-        match MenuItem::ALL[self.selected] {
-            MenuItem::NewGame => self.screen = Screen::NewGame,
-            MenuItem::LoadGame => self.screen = Screen::LoadGame,
-            MenuItem::Options => self.screen = Screen::Options,
-            MenuItem::Quit => self.quit(),
+    fn handle_right(&mut self) {
+        match self.screen {
+            Screen::Options            => self.change_option(1),
+            Screen::CharacterCreation  => self.creation.adjust_stat(1),
+            _ => {}
         }
     }
 
-    async fn go_back(&mut self) -> color_eyre::Result<()> {
-        if self.screen == Screen::Options {
-            self.settings.save(&self.pool).await?;
+    // ── Confirm / Back ────────────────────────────────────────────────────────
+
+    async fn confirm(&mut self) -> color_eyre::Result<()> {
+        match self.screen {
+            Screen::MainMenu => match MenuItem::ALL[self.selected] {
+                MenuItem::NewGame => {
+                    self.creation = CharacterCreation::default();
+                    self.screen = Screen::CharacterCreation;
+                }
+                MenuItem::LoadGame => {
+                    let chars = db::load_characters(&self.pool).await?;
+                    self.saved_characters = chars;
+                    self.load_cursor = 0;
+                    self.screen = Screen::LoadGame;
+                }
+                MenuItem::Options => self.screen = Screen::Options,
+                MenuItem::Quit    => self.quit(),
+            },
+
+            Screen::CharacterCreation => {
+                if self.creation.step == CreationStep::Confirm {
+                    // Save to DB, then load the full record back so InGame
+                    // has a consistent SavedCharacter to work with.
+                    let id = db::save_character(&self.pool, &self.creation).await?;
+                    let character = db::load_character_by_id(&self.pool, id).await?;
+                    self.active_character = Some(character);
+                    self.screen = Screen::InGame;
+                } else {
+                    self.creation.step = self.creation.step.next();
+                }
+            }
+
+            Screen::LoadGame => {
+                if !self.saved_characters.is_empty() {
+                    let character = self.saved_characters[self.load_cursor].clone();
+                    self.active_character = Some(character);
+                    self.screen = Screen::InGame;
+                }
+            }
+
+            _ => {}
         }
-        self.screen = Screen::MainMenu;
         Ok(())
     }
 
-    fn change_option(&mut self, dir: i32) {
-        if self.screen != Screen::Options {
-            return;
+    async fn go_back(&mut self) -> color_eyre::Result<()> {
+        match self.screen {
+            Screen::Options => {
+                self.settings.save(&self.pool).await?;
+                self.screen = Screen::MainMenu;
+            }
+            Screen::CharacterCreation => {
+                if self.creation.step == CreationStep::Name {
+                    self.screen = Screen::MainMenu;
+                } else {
+                    self.creation.step = self.creation.step.prev();
+                }
+            }
+            Screen::InGame => {
+                // Return to main menu; active character stays loaded
+                self.screen = Screen::MainMenu;
+            }
+            _ => self.screen = Screen::MainMenu,
         }
+        Ok(())
+    }
+
+    // ── Options value changes ─────────────────────────────────────────────────
+
+    fn change_option(&mut self, dir: i32) {
         match self.options_cursor {
             0 => self.settings.sound_effects = !self.settings.sound_effects,
             1 => {
@@ -216,5 +337,17 @@ impl App {
 
     pub fn quit(&mut self) {
         self.running = false;
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn cycle_cursor(cursor: &mut usize, dir: i32, len: usize) {
+    if dir > 0 {
+        *cursor = (*cursor + 1) % len;
+    } else if *cursor == 0 {
+        *cursor = len - 1;
+    } else {
+        *cursor -= 1;
     }
 }

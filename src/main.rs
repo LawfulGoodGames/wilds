@@ -1,4 +1,5 @@
 pub mod app;
+pub mod character;
 pub mod db;
 pub mod event;
 pub mod settings;
