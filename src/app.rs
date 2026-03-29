@@ -110,6 +110,7 @@ impl App {
                     AppEvent::CombatSelectSpell => self.set_combat_attack_kind(AttackKind::Spell),
                     AppEvent::CombatCycleOptionUp => self.cycle_combat_option(-1),
                     AppEvent::CombatCycleOptionDown => self.cycle_combat_option(1),
+                    AppEvent::CombatCycleTarget => self.cycle_combat_target(),
                     AppEvent::CombatUseSelected => self.handle_combat_action(PlayerAction::UseSelectedAttack).await?,
                     AppEvent::CombatDefend => self.handle_combat_action(PlayerAction::Defend).await?,
                     AppEvent::CombatFlee => self.handle_combat_action(PlayerAction::Flee).await?,
@@ -194,6 +195,7 @@ impl App {
                 KeyCode::Char('3') | KeyCode::Char('c') => self.events.send(AppEvent::CombatSelectSpell),
                 KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::CombatCycleOptionUp),
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::CombatCycleOptionDown),
+                KeyCode::Tab => self.events.send(AppEvent::CombatCycleTarget),
                 KeyCode::Enter | KeyCode::Char('a') => self.events.send(AppEvent::CombatUseSelected),
                 KeyCode::Char('d') => self.events.send(AppEvent::CombatDefend),
                 KeyCode::Char('f') => self.events.send(AppEvent::CombatFlee),
@@ -411,6 +413,12 @@ impl App {
     fn cycle_combat_option(&mut self, dir: i32) {
         if let Some(combat) = self.combat.as_mut() {
             combat.cycle_selected_option(dir);
+        }
+    }
+
+    fn cycle_combat_target(&mut self) {
+        if let Some(combat) = self.combat.as_mut() {
+            combat.cycle_target(1);
         }
     }
 

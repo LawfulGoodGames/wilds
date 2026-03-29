@@ -62,7 +62,8 @@ pub enum CombatOutcome {
 pub struct CombatState {
     pub player_hp: i32,
     pub player_max_hp: i32,
-    pub enemy: Enemy,
+    pub enemies: Vec<Enemy>,
+    pub selected_enemy: usize,
     pub turn: Turn,
     pub defending: bool,
     pub active_attack_kind: AttackKind,
@@ -80,20 +81,30 @@ pub struct CombatState {
 impl CombatState {
     pub fn from_character(character: &SavedCharacter) -> Self {
         let level = character.level.max(1);
-        let enemy_hp = 20 + level * 3;
-        let enemy_attack = 4 + level / 2;
         Self {
             player_hp: character.hp.max(1),
             player_max_hp: character.max_hp.max(1),
-            enemy: Enemy {
-                name: "Wild Wolf".to_string(),
-                hp: enemy_hp,
-                max_hp: enemy_hp,
-                attack: enemy_attack,
-                armor_class: 48 + level * 2,
-                reward_xp: 30 + level * 10,
-                reward_gold: 8 + level * 3,
-            },
+            enemies: vec![
+                Enemy {
+                    name: "Wild Wolf".to_string(),
+                    hp: 20 + level * 3,
+                    max_hp: 20 + level * 3,
+                    attack: 4 + level / 2,
+                    armor_class: 48 + level * 2,
+                    reward_xp: 30 + level * 10,
+                    reward_gold: 8 + level * 3,
+                },
+                Enemy {
+                    name: "Feral Fox".to_string(),
+                    hp: 14 + level * 2,
+                    max_hp: 14 + level * 2,
+                    attack: 3 + level / 2,
+                    armor_class: 44 + level * 2,
+                    reward_xp: 20 + level * 7,
+                    reward_gold: 5 + level * 2,
+                },
+            ],
+            selected_enemy: 0,
             turn: Turn::Player,
             defending: false,
             active_attack_kind: AttackKind::Melee,
@@ -143,7 +154,7 @@ impl CombatState {
                 },
             ],
             last_roll_summary: None,
-            log: vec!["A Wild Wolf leaps from the brush.".to_string()],
+            log: vec!["A Wild Wolf and a Feral Fox spring from the shadows.".to_string()],
             new_log_entries: 1,
         }
     }
@@ -166,6 +177,33 @@ impl CombatState {
 
     pub fn set_attack_kind(&mut self, kind: AttackKind) {
         self.active_attack_kind = kind;
+    }
+
+    pub fn cycle_target(&mut self, dir: i32) {
+        let n = self.enemies.len();
+        if n == 0 {
+            return;
+        }
+        let step = if dir >= 0 { 1i32 } else { -1i32 };
+        let start = self.selected_enemy;
+        let mut next = ((self.selected_enemy as i32 + step).rem_euclid(n as i32)) as usize;
+        let mut count = 0;
+        while self.enemies[next].hp == 0 && next != start && count < n {
+            next = ((next as i32 + step).rem_euclid(n as i32)) as usize;
+            count += 1;
+        }
+        self.selected_enemy = next;
+    }
+
+    fn auto_select_alive_enemy(&mut self) {
+        let n = self.enemies.len();
+        for i in 1..=n {
+            let idx = (self.selected_enemy + i) % n;
+            if self.enemies[idx].hp > 0 {
+                self.selected_enemy = idx;
+                return;
+            }
+        }
     }
 
     pub fn cycle_selected_option(&mut self, dir: i32) {
@@ -223,22 +261,25 @@ impl CombatState {
                 let option_max_damage = option.max_damage;
                 let major_bonus = self.major_hit_bonus(character, attack_kind);
                 let minor_bonus = self.minor_hit_bonus(character, attack_kind);
+                let target_ac = self.enemies[self.selected_enemy].armor_class;
+                let target_name = self.enemies[self.selected_enemy].name.clone();
                 let total_roll = attack_roll + option_accuracy_bonus + major_bonus + minor_bonus;
-                let hit = total_roll >= self.enemy.armor_class;
+                let hit = total_roll >= target_ac;
 
                 if hit {
                     let damage = self.roll_damage(option_min_damage, option_max_damage, damage_roll)
                         + self.major_damage_bonus(character, attack_kind)
                         + self.minor_damage_bonus(character, attack_kind);
                     let damage = damage.max(1);
-                    self.enemy.hp = (self.enemy.hp - damage).max(0);
+                    self.enemies[self.selected_enemy].hp =
+                        (self.enemies[self.selected_enemy].hp - damage).max(0);
                     self.last_roll_summary = Some(format!(
                         "{} [{}] d100={} total={} vs AC {} -> HIT, dmgRoll={} dmg={}",
                         attack_kind.label(),
                         option_name,
                         attack_roll,
                         total_roll,
-                        self.enemy.armor_class,
+                        target_ac,
                         damage_roll,
                         damage
                     ));
@@ -248,16 +289,21 @@ impl CombatState {
                         option_name,
                         attack_roll,
                         total_roll,
-                        self.enemy.armor_class,
+                        target_ac,
                         damage
                     ));
-                    if self.enemy.hp == 0 {
-                        self.log.push(format!("{} is defeated.", self.enemy.name));
-                        self.update_new_log_entries(start_log_len);
-                        return CombatOutcome::Won {
-                            xp: self.enemy.reward_xp,
-                            gold: self.enemy.reward_gold,
-                        };
+                    if self.enemies[self.selected_enemy].hp == 0 {
+                        self.log.push(format!("{} is defeated.", target_name));
+                        if self.enemies.iter().all(|e| e.hp == 0) {
+                            let total_xp: i32 = self.enemies.iter().map(|e| e.reward_xp).sum();
+                            let total_gold: i32 = self.enemies.iter().map(|e| e.reward_gold).sum();
+                            self.update_new_log_entries(start_log_len);
+                            return CombatOutcome::Won {
+                                xp: total_xp,
+                                gold: total_gold,
+                            };
+                        }
+                        self.auto_select_alive_enemy();
                     }
                 } else {
                     self.last_roll_summary = Some(format!(
@@ -266,7 +312,7 @@ impl CombatState {
                         option_name,
                         attack_roll,
                         total_roll,
-                        self.enemy.armor_class
+                        target_ac
                     ));
                     self.log.push(format!(
                         "{} [{}] roll {} + bonuses = {} vs AC {} -> MISS.",
@@ -274,7 +320,7 @@ impl CombatState {
                         option_name,
                         attack_roll,
                         total_roll,
-                        self.enemy.armor_class
+                        target_ac
                     ));
                 }
             }
@@ -287,7 +333,8 @@ impl CombatState {
                 self.last_roll_summary = None;
                 let dexterity = character.major_skill(MajorSkill::Dexterity);
                 let wisdom = character.major_skill(MajorSkill::Wisdom);
-                if dexterity + wisdom >= self.enemy.attack * 2 {
+                let max_attack = self.enemies.iter().filter(|e| e.hp > 0).map(|e| e.attack).max().unwrap_or(0);
+                if dexterity + wisdom >= max_attack * 2 {
                     self.log.push("You slip away from battle.".to_string());
                     self.update_new_log_entries(start_log_len);
                     return CombatOutcome::Fled;
@@ -309,10 +356,19 @@ impl CombatState {
     fn resolve_enemy_turn(&mut self, character: &SavedCharacter) -> CombatOutcome {
         let constitution = character.major_skill(MajorSkill::Constitution);
         let mitigation = constitution / 5 + if self.defending { 2 } else { 0 };
-        let damage = (self.enemy.attack - mitigation).max(1);
-        self.player_hp = (self.player_hp - damage).max(0);
-        self.log
-            .push(format!("{} claws you for {} damage.", self.enemy.name, damage));
+        let attacks: Vec<(String, i32)> = self
+            .enemies
+            .iter()
+            .filter(|e| e.hp > 0)
+            .map(|e| (e.name.clone(), (e.attack - mitigation).max(1)))
+            .collect();
+        for (name, damage) in attacks {
+            self.player_hp = (self.player_hp - damage).max(0);
+            self.log.push(format!("{} claws you for {} damage.", name, damage));
+            if self.player_hp == 0 {
+                break;
+            }
+        }
         self.defending = false;
         self.turn = Turn::Player;
         if self.player_hp == 0 {
@@ -451,7 +507,7 @@ mod tests {
         CombatState {
             player_hp: 20,
             player_max_hp: 20,
-            enemy: Enemy {
+            enemies: vec![Enemy {
                 name: "Dummy".to_string(),
                 hp: enemy_hp,
                 max_hp: enemy_hp,
@@ -459,7 +515,8 @@ mod tests {
                 armor_class,
                 reward_xp: 25,
                 reward_gold: 8,
-            },
+            }],
+            selected_enemy: 0,
             turn: Turn::Player,
             defending: false,
             active_attack_kind: AttackKind::Melee,
@@ -503,7 +560,7 @@ mod tests {
         );
 
         assert!(matches!(outcome, CombatOutcome::Ongoing));
-        assert!(combat.enemy.hp < 30);
+        assert!(combat.enemies[0].hp < 30);
         assert!(combat.player_hp < 20);
     }
 
@@ -520,7 +577,7 @@ mod tests {
         );
 
         assert!(matches!(outcome, CombatOutcome::Ongoing));
-        assert_eq!(combat.enemy.hp, 30);
+        assert_eq!(combat.enemies[0].hp, 30);
     }
 
     #[test]
@@ -539,7 +596,7 @@ mod tests {
             outcome,
             CombatOutcome::Won { xp: 25, gold: 8 }
         ));
-        assert_eq!(combat.enemy.hp, 0);
+        assert_eq!(combat.enemies[0].hp, 0);
     }
 
     #[test]

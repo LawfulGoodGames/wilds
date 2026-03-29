@@ -629,8 +629,9 @@ fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
     let inner = outer.inner(area);
     outer.render(area, buf);
 
+    let header_height = (2 + combat.enemies.len() as u16 * 2).max(6);
     let chunks = Layout::vertical([
-        Constraint::Length(6),
+        Constraint::Length(header_height),
         Constraint::Min(1),
         Constraint::Length(2),
     ])
@@ -651,26 +652,38 @@ fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
         .block(Block::bordered().title(" Player ").border_type(BorderType::Rounded).style(dim_style()))
         .render(header[0], buf);
 
-    let enemy_lines = vec![
-        Line::from(Span::styled(
-            &combat.enemy.name,
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            hp_bar("HP", combat.enemy.hp, combat.enemy.max_hp, 24),
-            Style::default().fg(Color::Red),
-        )),
-        Line::from(Span::styled(
-            format!("Armor Class: {}", combat.enemy.armor_class),
-            Style::default().fg(Color::Yellow),
-        )),
-        Line::from(Span::styled(
-            format!("Reward: {} XP, {} Gold", combat.enemy.reward_xp, combat.enemy.reward_gold),
-            dim_style(),
-        )),
-    ];
+    let mut enemy_lines: Vec<Line> = vec![];
+    for (idx, enemy) in combat.enemies.iter().enumerate() {
+        let is_selected = idx == combat.selected_enemy;
+        let is_dead = enemy.hp == 0;
+        let cursor = if is_selected { "▶" } else { " " };
+        let name_style = if is_dead {
+            Style::default().fg(Color::DarkGray)
+        } else if is_selected {
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        } else {
+            normal_style()
+        };
+        let name_text = if is_dead {
+            format!("{} {} [defeated]", cursor, enemy.name)
+        } else {
+            format!("{} {}", cursor, enemy.name)
+        };
+        enemy_lines.push(Line::from(Span::styled(name_text, name_style)));
+        enemy_lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                hp_bar("HP", enemy.hp, enemy.max_hp, 16),
+                Style::default().fg(if is_dead { Color::DarkGray } else { Color::Red }),
+            ),
+            Span::styled(
+                format!("  AC:{}", enemy.armor_class),
+                if is_selected && !is_dead { Style::default().fg(Color::Yellow) } else { dim_style() },
+            ),
+        ]));
+    }
     Paragraph::new(enemy_lines)
-        .block(Block::bordered().title(" Enemy ").border_type(BorderType::Rounded).style(dim_style()))
+        .block(Block::bordered().title(" Enemies (Tab) ").border_type(BorderType::Rounded).style(dim_style()))
         .render(header[1], buf);
 
     let (options, selected_idx) = combat.selected_options();
@@ -741,7 +754,7 @@ fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
     }
 
     hint_bar(
-        "1/2/3 select type    ↑ ↓ choose option    Enter/a attack    d defend    f flee",
+        "1/2/3 select type    ↑ ↓ choose option    Tab cycle target    Enter/a attack    d defend    f flee",
         footer[1],
         buf,
     );

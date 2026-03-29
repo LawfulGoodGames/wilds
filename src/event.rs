@@ -42,6 +42,7 @@ pub enum AppEvent {
     CombatSelectSpell,
     CombatCycleOptionUp,
     CombatCycleOptionDown,
+    CombatCycleTarget,
     CombatUseSelected,
     CombatDefend,
     CombatFlee,
