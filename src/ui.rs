@@ -699,13 +699,23 @@ fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
         }
     }));
 
+    let visible_start = combat.log.len().saturating_sub(5);
+    let new_start = combat.log.len().saturating_sub(combat.new_log_entries);
     let log_lines: Vec<Line> = combat
         .log
         .iter()
-        .rev()
-        .take(5)
-        .rev()
-        .map(|entry| Line::from(Span::styled(format!("• {entry}"), normal_style())))
+        .enumerate()
+        .skip(visible_start)
+        .map(|(idx, entry)| {
+            if idx >= new_start {
+                Line::from(Span::styled(
+                    format!("▶ {entry}"),
+                    Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+                ))
+            } else {
+                Line::from(Span::styled(format!("• {entry}"), normal_style()))
+            }
+        })
         .collect();
 
     let lower = Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)]).split(chunks[1]);

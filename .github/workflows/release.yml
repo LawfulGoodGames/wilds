@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  APP_NAME: wilds
+
+jobs:
+  build:
+    name: build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos-x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+            archive_ext: tar.gz
+            shell_kind: unix
+          - label: macos-aarch64
+            os: macos-14
+            target: aarch64-apple-darwin
+            archive_ext: tar.gz
+            shell_kind: unix
+          - label: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_ext: zip
+            shell_kind: windows
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package artifact (unix)
+        if: matrix.shell_kind == 'unix'
+        run: |
+          bash scripts/release/package_unix.sh "${{ env.APP_NAME }}" "${{ matrix.target }}" "${{ github.ref_name }}"
+
+      - name: Package artifact (windows)
+        if: matrix.shell_kind == 'windows'
+        shell: pwsh
+        run: |
+          ./scripts/release/package_windows.ps1 -AppName "${{ env.APP_NAME }}" -Target "${{ matrix.target }}" -Version "${{ github.ref_name }}"
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: publish release assets
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Collect assets
+        run: |
+          mkdir -p release-assets
+          find dist -type f -maxdepth 3 -exec cp "{}" release-assets/ \;
+          ls -lah release-assets
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true

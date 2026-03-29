@@ -74,6 +74,7 @@ pub struct CombatState {
     pub spell_options: Vec<AttackOption>,
     pub last_roll_summary: Option<String>,
     pub log: Vec<String>,
+    pub new_log_entries: usize,
 }
 
 impl CombatState {
@@ -143,6 +144,7 @@ impl CombatState {
             ],
             last_roll_summary: None,
             log: vec!["A Wild Wolf leaps from the brush.".to_string()],
+            new_log_entries: 1,
         }
     }
 
@@ -210,6 +212,7 @@ impl CombatState {
         if self.turn != Turn::Player {
             return CombatOutcome::Ongoing;
         }
+        let start_log_len = self.log.len();
 
         match action {
             PlayerAction::UseSelectedAttack => {
@@ -250,6 +253,7 @@ impl CombatState {
                     ));
                     if self.enemy.hp == 0 {
                         self.log.push(format!("{} is defeated.", self.enemy.name));
+                        self.update_new_log_entries(start_log_len);
                         return CombatOutcome::Won {
                             xp: self.enemy.reward_xp,
                             gold: self.enemy.reward_gold,
@@ -285,6 +289,7 @@ impl CombatState {
                 let wisdom = character.major_skill(MajorSkill::Wisdom);
                 if dexterity + wisdom >= self.enemy.attack * 2 {
                     self.log.push("You slip away from battle.".to_string());
+                    self.update_new_log_entries(start_log_len);
                     return CombatOutcome::Fled;
                 }
                 self.log.push("You fail to escape.".to_string());
@@ -297,6 +302,7 @@ impl CombatState {
             let keep_from = self.log.len().saturating_sub(12);
             self.log.drain(0..keep_from);
         }
+        self.update_new_log_entries(start_log_len);
         outcome
     }
 
@@ -400,6 +406,10 @@ impl CombatState {
         let span = (max_damage - min_damage + 1).max(1);
         min_damage + ((damage_roll - 1).max(0) % span)
     }
+
+    fn update_new_log_entries(&mut self, start_log_len: usize) {
+        self.new_log_entries = self.log.len().saturating_sub(start_log_len);
+    }
 }
 
 #[cfg(test)]
@@ -476,6 +486,7 @@ mod tests {
             }],
             last_roll_summary: None,
             log: Vec::new(),
+            new_log_entries: 0,
         }
     }
 
