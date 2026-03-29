@@ -1,4 +1,6 @@
-use crate::character::{CharacterCreation, SavedCharacter, SkillData, SkillKind};
+use crate::character::{
+    CharacterCreation, MajorSkill, MajorSkillData, MinorSkill, MinorSkillData, SavedCharacter,
+};
 use sqlx::{Row, sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow}};
 use std::{collections::HashMap, str::FromStr};
 
@@ -36,8 +38,8 @@ pub async fn save_character(
 
     let id = result.last_insert_rowid();
 
-    // Seed all 12 skills at XP = 0
-    for skill in SkillKind::ALL {
+    // Seed all 12 minor skills at XP = 0
+    for skill in MinorSkill::ALL {
         sqlx::query(
             "INSERT OR IGNORE INTO character_skills (character_id, skill_name, xp)
              VALUES (?1, ?2, 0)",
@@ -65,7 +67,7 @@ pub async fn load_character_by_id(
     .await?;
 
     let mut ch = row_to_character(&row);
-    ch.skills = load_skills_for_character(pool, id).await?;
+    ch.minor_skills = load_minor_skills(pool, id).await?;
     Ok(ch)
 }
 
@@ -83,7 +85,7 @@ pub async fn load_characters(
     let mut chars = Vec::with_capacity(rows.len());
     for row in &rows {
         let mut ch = row_to_character(row);
-        ch.skills = load_skills_for_character(pool, ch.id).await?;
+        ch.minor_skills = load_minor_skills(pool, ch.id).await?;
         chars.push(ch);
     }
     Ok(chars)
@@ -91,10 +93,10 @@ pub async fn load_characters(
 
 // ── Skill XP update ───────────────────────────────────────────────────────────
 
-pub async fn update_skill_xp(
+pub async fn update_minor_skill_xp(
     pool: &sqlx::SqlitePool,
     character_id: i64,
-    skill: SkillKind,
+    skill: MinorSkill,
     new_xp: i32,
 ) -> color_eyre::Result<()> {
     sqlx::query(
@@ -109,12 +111,29 @@ pub async fn update_skill_xp(
     Ok(())
 }
 
-// ── Private helpers ───────────────────────────────────────────────────────────
-
-async fn load_skills_for_character(
+pub async fn update_major_skill(
     pool: &sqlx::SqlitePool,
     character_id: i64,
-) -> color_eyre::Result<Vec<SkillData>> {
+    skill: MajorSkill,
+    new_points: i32,
+) -> color_eyre::Result<()> {
+    let col = skill.db_column();
+    sqlx::query(&format!(
+        "UPDATE characters SET {col} = ?1 WHERE id = ?2"
+    ))
+    .bind(new_points as i64)
+    .bind(character_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+async fn load_minor_skills(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<Vec<MinorSkillData>> {
     let rows = sqlx::query(
         "SELECT skill_name, xp FROM character_skills WHERE character_id = ?1",
     )
@@ -127,9 +146,9 @@ async fn load_skills_for_character(
         .map(|r| (r.get::<String, _>("skill_name"), r.get::<i64, _>("xp") as i32))
         .collect();
 
-    Ok(SkillKind::ALL
+    Ok(MinorSkill::ALL
         .iter()
-        .map(|&kind| SkillData {
+        .map(|&kind| MinorSkillData {
             kind,
             xp: map.remove(kind.name()).unwrap_or(0),
         })
@@ -138,22 +157,24 @@ async fn load_skills_for_character(
 
 fn row_to_character(row: &SqliteRow) -> SavedCharacter {
     SavedCharacter {
-        id:       row.get("id"),
-        name:     row.get("name"),
-        race:     row.get("race"),
-        class:    row.get("class"),
-        gear:     row.get("gear"),
-        level:    row.get::<i64, _>("level")   as i32,
-        xp:       row.get::<i64, _>("xp")      as i32,
-        hp:       row.get::<i64, _>("hp")       as i32,
-        max_hp:   row.get::<i64, _>("max_hp")   as i32,
-        gold:     row.get::<i64, _>("gold")     as i32,
-        str_stat: row.get::<i64, _>("str_stat") as i32,
-        dex_stat: row.get::<i64, _>("dex_stat") as i32,
-        con_stat: row.get::<i64, _>("con_stat") as i32,
-        int_stat: row.get::<i64, _>("int_stat") as i32,
-        wis_stat: row.get::<i64, _>("wis_stat") as i32,
-        cha_stat: row.get::<i64, _>("cha_stat") as i32,
-        skills:   Vec::new(), // populated by callers via load_skills_for_character
+        id:     row.get("id"),
+        name:   row.get("name"),
+        race:   row.get("race"),
+        class:  row.get("class"),
+        gear:   row.get("gear"),
+        level:  row.get::<i64, _>("level")  as i32,
+        xp:     row.get::<i64, _>("xp")     as i32,
+        hp:     row.get::<i64, _>("hp")      as i32,
+        max_hp: row.get::<i64, _>("max_hp")  as i32,
+        gold:   row.get::<i64, _>("gold")    as i32,
+        major_skills: vec![
+            MajorSkillData { kind: MajorSkill::Strength,     points: row.get::<i64,_>("str_stat") as i32 },
+            MajorSkillData { kind: MajorSkill::Dexterity,    points: row.get::<i64,_>("dex_stat") as i32 },
+            MajorSkillData { kind: MajorSkill::Constitution, points: row.get::<i64,_>("con_stat") as i32 },
+            MajorSkillData { kind: MajorSkill::Intelligence, points: row.get::<i64,_>("int_stat") as i32 },
+            MajorSkillData { kind: MajorSkill::Wisdom,       points: row.get::<i64,_>("wis_stat") as i32 },
+            MajorSkillData { kind: MajorSkill::Charisma,     points: row.get::<i64,_>("cha_stat") as i32 },
+        ],
+        minor_skills: Vec::new(), // populated by callers via load_minor_skills
     }
 }

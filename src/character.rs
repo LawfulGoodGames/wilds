@@ -48,7 +48,7 @@ pub fn level_progress_pct(xp: i32) -> f64 {
 // ── Skills ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SkillKind {
+pub enum MinorSkill {
     Cooking,
     Blacksmithing,
     Mining,
@@ -63,85 +63,150 @@ pub enum SkillKind {
     Runecrafting,
 }
 
-impl SkillKind {
-    pub const ALL: [SkillKind; 12] = [
-        SkillKind::Cooking,
-        SkillKind::Blacksmithing,
-        SkillKind::Mining,
-        SkillKind::Woodcutting,
-        SkillKind::Fishing,
-        SkillKind::Herbalism,
-        SkillKind::Farming,
-        SkillKind::Crafting,
-        SkillKind::Enchanting,
-        SkillKind::Thieving,
-        SkillKind::Prayer,
-        SkillKind::Runecrafting,
+impl MinorSkill {
+    pub const ALL: [MinorSkill; 12] = [
+        MinorSkill::Cooking,
+        MinorSkill::Blacksmithing,
+        MinorSkill::Mining,
+        MinorSkill::Woodcutting,
+        MinorSkill::Fishing,
+        MinorSkill::Herbalism,
+        MinorSkill::Farming,
+        MinorSkill::Crafting,
+        MinorSkill::Enchanting,
+        MinorSkill::Thieving,
+        MinorSkill::Prayer,
+        MinorSkill::Runecrafting,
     ];
 
     pub fn name(self) -> &'static str {
         match self {
-            SkillKind::Cooking       => "Cooking",
-            SkillKind::Blacksmithing => "Blacksmithing",
-            SkillKind::Mining        => "Mining",
-            SkillKind::Woodcutting   => "Woodcutting",
-            SkillKind::Fishing       => "Fishing",
-            SkillKind::Herbalism     => "Herbalism",
-            SkillKind::Farming       => "Farming",
-            SkillKind::Crafting      => "Crafting",
-            SkillKind::Enchanting    => "Enchanting",
-            SkillKind::Thieving      => "Thieving",
-            SkillKind::Prayer        => "Prayer",
-            SkillKind::Runecrafting  => "Runecrafting",
+            MinorSkill::Cooking       => "Cooking",
+            MinorSkill::Blacksmithing => "Blacksmithing",
+            MinorSkill::Mining        => "Mining",
+            MinorSkill::Woodcutting   => "Woodcutting",
+            MinorSkill::Fishing       => "Fishing",
+            MinorSkill::Herbalism     => "Herbalism",
+            MinorSkill::Farming       => "Farming",
+            MinorSkill::Crafting      => "Crafting",
+            MinorSkill::Enchanting    => "Enchanting",
+            MinorSkill::Thieving      => "Thieving",
+            MinorSkill::Prayer        => "Prayer",
+            MinorSkill::Runecrafting  => "Runecrafting",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            SkillKind::Cooking       => "Prepare food that restores HP and grants buffs.",
-            SkillKind::Blacksmithing => "Forge weapons and armor from raw ore.",
-            SkillKind::Mining        => "Extract ore, gems, and stone from the earth.",
-            SkillKind::Woodcutting   => "Fell trees and gather wood for crafting.",
-            SkillKind::Fishing       => "Catch fish from rivers, lakes, and seas.",
-            SkillKind::Herbalism     => "Gather herbs and brew potions.",
-            SkillKind::Farming       => "Grow crops and tend livestock.",
-            SkillKind::Crafting      => "Create items from leather, cloth, and bone.",
-            SkillKind::Enchanting    => "Imbue items with magical properties.",
-            SkillKind::Thieving      => "Pick pockets, crack locks, and move unseen.",
-            SkillKind::Prayer        => "Channel divine favour for blessings.",
-            SkillKind::Runecrafting  => "Craft runes used in spellcasting.",
+            MinorSkill::Cooking       => "Prepare food that restores HP and grants buffs.",
+            MinorSkill::Blacksmithing => "Forge weapons and armor from raw ore.",
+            MinorSkill::Mining        => "Extract ore, gems, and stone from the earth.",
+            MinorSkill::Woodcutting   => "Fell trees and gather wood for crafting.",
+            MinorSkill::Fishing       => "Catch fish from rivers, lakes, and seas.",
+            MinorSkill::Herbalism     => "Gather herbs and brew potions.",
+            MinorSkill::Farming       => "Grow crops and tend livestock.",
+            MinorSkill::Crafting      => "Create items from leather, cloth, and bone.",
+            MinorSkill::Enchanting    => "Imbue items with magical properties.",
+            MinorSkill::Thieving      => "Pick pockets, crack locks, and move unseen.",
+            MinorSkill::Prayer        => "Channel divine favour for blessings.",
+            MinorSkill::Runecrafting  => "Craft runes used in spellcasting.",
         }
     }
 
-    pub fn from_str(s: &str) -> Option<SkillKind> {
+    pub fn from_str(s: &str) -> Option<MinorSkill> {
         match s {
-            "Cooking"       => Some(SkillKind::Cooking),
-            "Blacksmithing" => Some(SkillKind::Blacksmithing),
-            "Mining"        => Some(SkillKind::Mining),
-            "Woodcutting"   => Some(SkillKind::Woodcutting),
-            "Fishing"       => Some(SkillKind::Fishing),
-            "Herbalism"     => Some(SkillKind::Herbalism),
-            "Farming"       => Some(SkillKind::Farming),
-            "Crafting"      => Some(SkillKind::Crafting),
-            "Enchanting"    => Some(SkillKind::Enchanting),
-            "Thieving"      => Some(SkillKind::Thieving),
-            "Prayer"        => Some(SkillKind::Prayer),
-            "Runecrafting"  => Some(SkillKind::Runecrafting),
+            "Cooking"       => Some(MinorSkill::Cooking),
+            "Blacksmithing" => Some(MinorSkill::Blacksmithing),
+            "Mining"        => Some(MinorSkill::Mining),
+            "Woodcutting"   => Some(MinorSkill::Woodcutting),
+            "Fishing"       => Some(MinorSkill::Fishing),
+            "Herbalism"     => Some(MinorSkill::Herbalism),
+            "Farming"       => Some(MinorSkill::Farming),
+            "Crafting"      => Some(MinorSkill::Crafting),
+            "Enchanting"    => Some(MinorSkill::Enchanting),
+            "Thieving"      => Some(MinorSkill::Thieving),
+            "Prayer"        => Some(MinorSkill::Prayer),
+            "Runecrafting"  => Some(MinorSkill::Runecrafting),
             _               => None,
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct SkillData {
-    pub kind: SkillKind,
+pub struct MinorSkillData {
+    pub kind: MinorSkill,
     pub xp:   i32,
 }
 
-impl SkillData {
+impl MinorSkillData {
     pub fn level(&self) -> u32    { level_from_xp(self.xp) }
     pub fn xp_to_next(&self) -> u32 { xp_to_next_level(self.xp) }
     pub fn progress(&self) -> f64 { level_progress_pct(self.xp) }
+}
+
+// ── Major Skills ──────────────────────────────────────────────────────────────
+
+/// The 6 core stats set at character creation. Governed by combat and class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MajorSkill {
+    Strength,
+    Dexterity,
+    Constitution,
+    Intelligence,
+    Wisdom,
+    Charisma,
+}
+
+impl MajorSkill {
+    pub const ALL: [MajorSkill; 6] = [
+        MajorSkill::Strength,
+        MajorSkill::Dexterity,
+        MajorSkill::Constitution,
+        MajorSkill::Intelligence,
+        MajorSkill::Wisdom,
+        MajorSkill::Charisma,
+    ];
+
+    pub fn short_name(self) -> &'static str {
+        match self {
+            MajorSkill::Strength     => "STR",
+            MajorSkill::Dexterity    => "DEX",
+            MajorSkill::Constitution => "CON",
+            MajorSkill::Intelligence => "INT",
+            MajorSkill::Wisdom       => "WIS",
+            MajorSkill::Charisma     => "CHA",
+        }
+    }
+
+    pub fn full_name(self) -> &'static str {
+        match self {
+            MajorSkill::Strength     => "Strength",
+            MajorSkill::Dexterity    => "Dexterity",
+            MajorSkill::Constitution => "Constitution",
+            MajorSkill::Intelligence => "Intelligence",
+            MajorSkill::Wisdom       => "Wisdom",
+            MajorSkill::Charisma     => "Charisma",
+        }
+    }
+
+    /// The DB column name for this skill in the `characters` table.
+    pub fn db_column(self) -> &'static str {
+        match self {
+            MajorSkill::Strength     => "str_stat",
+            MajorSkill::Dexterity    => "dex_stat",
+            MajorSkill::Constitution => "con_stat",
+            MajorSkill::Intelligence => "int_stat",
+            MajorSkill::Wisdom       => "wis_stat",
+            MajorSkill::Charisma     => "cha_stat",
+        }
+    }
+}
+
+/// A major skill value for a loaded character.
+#[derive(Debug, Clone)]
+pub struct MajorSkillData {
+    pub kind:   MajorSkill,
+    pub points: i32,
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -494,14 +559,21 @@ pub struct SavedCharacter {
     pub hp:       i32,
     pub max_hp:   i32,
     pub gold:     i32,
-    pub str_stat: i32,
-    pub dex_stat: i32,
-    pub con_stat: i32,
-    pub int_stat: i32,
-    pub wis_stat: i32,
-    pub cha_stat: i32,
-    /// All 12 skills in `SkillKind::ALL` order. Populated after DB load.
-    pub skills:   Vec<SkillData>,
+    /// The 6 core stats in `MajorSkill::ALL` order.
+    pub major_skills: Vec<MajorSkillData>,
+    /// The 12 non-combat skills in `MinorSkill::ALL` order.
+    pub minor_skills: Vec<MinorSkillData>,
+}
+
+impl SavedCharacter {
+    /// Convenience getter — returns the point value for a major skill.
+    pub fn major_skill(&self, kind: MajorSkill) -> i32 {
+        self.major_skills
+            .iter()
+            .find(|s| s.kind == kind)
+            .map(|s| s.points)
+            .unwrap_or(5)
+    }
 }
 
 // ── CharacterCreation state ───────────────────────────────────────────────────

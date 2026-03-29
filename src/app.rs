@@ -57,7 +57,7 @@ pub struct App {
     pub load_cursor: usize,
     // Active game session
     pub active_character: Option<SavedCharacter>,
-    pub skills_cursor: usize,
+    pub minor_skills_cursor: usize,
     pool: SqlitePool,
     pub events: EventHandler,
 }
@@ -74,7 +74,7 @@ impl App {
             saved_characters: Vec::new(),
             load_cursor: 0,
             active_character: None,
-            skills_cursor: 0,
+            minor_skills_cursor: 0,
             pool,
             events: EventHandler::new(),
         }
@@ -99,7 +99,7 @@ impl App {
                     AppEvent::Back       => self.go_back().await?,
                     AppEvent::Left       => self.handle_left(),
                     AppEvent::Right      => self.handle_right(),
-                    AppEvent::OpenSkills => { self.skills_cursor = 0; self.screen = Screen::Skills; }
+                    AppEvent::OpenSkills => { self.minor_skills_cursor = 0; self.screen = Screen::Skills; }
                     AppEvent::Quit       => self.quit(),
                 },
             }
@@ -192,7 +192,7 @@ impl App {
             Screen::Options   => cycle_cursor(&mut self.options_cursor, -1, OPTIONS_COUNT),
             Screen::Skills    => {
                 if let Some(ch) = &self.active_character {
-                    cycle_cursor(&mut self.skills_cursor, -1, ch.skills.len());
+                    cycle_cursor(&mut self.minor_skills_cursor, -1, ch.minor_skills.len());
                 }
             }
             Screen::LoadGame  => {
@@ -217,7 +217,7 @@ impl App {
             Screen::Options   => cycle_cursor(&mut self.options_cursor, 1, OPTIONS_COUNT),
             Screen::Skills    => {
                 if let Some(ch) = &self.active_character {
-                    cycle_cursor(&mut self.skills_cursor, 1, ch.skills.len());
+                    cycle_cursor(&mut self.minor_skills_cursor, 1, ch.minor_skills.len());
                 }
             }
             Screen::LoadGame  => {

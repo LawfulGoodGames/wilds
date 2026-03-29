@@ -515,14 +515,14 @@ fn render_load_game(app: &App, area: Rect, buf: &mut Buffer) {
         ]),
         Line::from(""),
         Line::from(vec![
-            stat_chip("STR", ch.str_stat), Span::raw("  "),
-            stat_chip("DEX", ch.dex_stat), Span::raw("  "),
-            stat_chip("CON", ch.con_stat),
+            stat_chip(ch.major_skills[0].kind.short_name(), ch.major_skills[0].points), Span::raw("  "),
+            stat_chip(ch.major_skills[1].kind.short_name(), ch.major_skills[1].points), Span::raw("  "),
+            stat_chip(ch.major_skills[2].kind.short_name(), ch.major_skills[2].points),
         ]),
         Line::from(vec![
-            stat_chip("INT", ch.int_stat), Span::raw("  "),
-            stat_chip("WIS", ch.wis_stat), Span::raw("  "),
-            stat_chip("CHA", ch.cha_stat),
+            stat_chip(ch.major_skills[3].kind.short_name(), ch.major_skills[3].points), Span::raw("  "),
+            stat_chip(ch.major_skills[4].kind.short_name(), ch.major_skills[4].points), Span::raw("  "),
+            stat_chip(ch.major_skills[5].kind.short_name(), ch.major_skills[5].points),
         ]),
         Line::from(""),
         Line::from(vec![
@@ -580,12 +580,12 @@ fn render_in_game(app: &App, area: Rect, buf: &mut Buffer) {
         ]),
         Line::from(vec![
             Span::raw("  "),
-            stat_chip("STR", ch.str_stat), Span::raw("  "),
-            stat_chip("DEX", ch.dex_stat), Span::raw("  "),
-            stat_chip("CON", ch.con_stat), Span::raw("  "),
-            stat_chip("INT", ch.int_stat), Span::raw("  "),
-            stat_chip("WIS", ch.wis_stat), Span::raw("  "),
-            stat_chip("CHA", ch.cha_stat),
+            stat_chip(ch.major_skills[0].kind.short_name(), ch.major_skills[0].points), Span::raw("  "),
+            stat_chip(ch.major_skills[1].kind.short_name(), ch.major_skills[1].points), Span::raw("  "),
+            stat_chip(ch.major_skills[2].kind.short_name(), ch.major_skills[2].points), Span::raw("  "),
+            stat_chip(ch.major_skills[3].kind.short_name(), ch.major_skills[3].points), Span::raw("  "),
+            stat_chip(ch.major_skills[4].kind.short_name(), ch.major_skills[4].points), Span::raw("  "),
+            stat_chip(ch.major_skills[5].kind.short_name(), ch.major_skills[5].points),
         ]),
     ];
     Paragraph::new(status)
@@ -620,7 +620,7 @@ fn render_skills(app: &App, area: Rect, buf: &mut Buffer) {
     };
 
     let outer = Block::bordered()
-        .title(" Skills ")
+        .title(" Minor Skills ")
         .title_alignment(Alignment::Center)
         .border_type(BorderType::Rounded)
         .style(Style::default().fg(GOLD));
@@ -635,7 +635,7 @@ fn render_skills(app: &App, area: Rect, buf: &mut Buffer) {
     ]).split(chunks[0]);
 
     // Left: skill list
-    let list_lines: Vec<Line> = ch.skills.iter().enumerate().map(|(i, skill)| {
+    let list_lines: Vec<Line> = ch.minor_skills.iter().enumerate().map(|(i, skill)| {
         let level = skill.level();
         let level_color = match level {
             99         => GOLD,
@@ -643,7 +643,7 @@ fn render_skills(app: &App, area: Rect, buf: &mut Buffer) {
             31..=70    => Color::Cyan,
             _          => TEXT,
         };
-        if i == app.skills_cursor {
+        if i == app.minor_skills_cursor {
             Line::from(Span::styled(
                 format!("▶ {:<15} Lv.{:>2}", skill.kind.name(), level),
                 selected_style(),
@@ -661,7 +661,7 @@ fn render_skills(app: &App, area: Rect, buf: &mut Buffer) {
         .render(panels[0], buf);
 
     // Right: detail for highlighted skill
-    let skill = &ch.skills[app.skills_cursor];
+    let skill = &ch.minor_skills[app.minor_skills_cursor];
     let level = skill.level();
     let detail_width = (panels[1].width as usize).saturating_sub(6); // inner width for bar
 
