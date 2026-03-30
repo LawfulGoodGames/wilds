@@ -1,3 +1,4 @@
+use crate::achievements::AchievementState;
 use crate::character::{
     CharacterCreation, Class, CreationStep, GearPackage, MAX_PROFICIENCY_LEVEL, MinorSkill, Race,
     SavedCharacter, level_progress_pct, study_plan, xp_to_next_level,
@@ -52,6 +53,7 @@ pub enum Screen {
     CharacterSheet,
     Inventory,
     Equipment,
+    Achievements,
     Quests,
     Shop,
     Dialogue,
@@ -65,18 +67,20 @@ pub enum TownAction {
     Inventory,
     Equipment,
     Quests,
+    Achievements,
     Shop,
     Rest,
     LeaveTown,
 }
 
 impl TownAction {
-    pub const ALL: [TownAction; 8] = [
+    pub const ALL: [TownAction; 9] = [
         TownAction::Explore,
         TownAction::Character,
         TownAction::Inventory,
         TownAction::Equipment,
         TownAction::Quests,
+        TownAction::Achievements,
         TownAction::Shop,
         TownAction::Rest,
         TownAction::LeaveTown,
@@ -89,6 +93,7 @@ impl TownAction {
             Self::Inventory => "Inventory",
             Self::Equipment => "Equipment",
             Self::Quests => "Quest Log",
+            Self::Achievements => "Achievements",
             Self::Shop => "Visit Vendors",
             Self::Rest => "Rest at the Inn",
             Self::LeaveTown => "Return to Main Menu",
@@ -167,6 +172,7 @@ pub struct App {
     pub vendor_cursor: usize,
     pub shop_buy_mode: bool,
     pub equipment_cursor: usize,
+    pub achievement_cursor: usize,
     pub character_cursor: usize,
     pub character_tab: CharacterTab,
     pub dialogue_title: String,
@@ -175,6 +181,7 @@ pub struct App {
     pub status_message: Option<String>,
     pub active_training: Option<ActiveTraining>,
     pub recent_training_level_up: Option<(MinorSkill, u32)>,
+    pub achievements: AchievementState,
     pool: SqlitePool,
     pub events: EventHandler,
 }
@@ -202,6 +209,7 @@ impl App {
             vendor_cursor: 0,
             shop_buy_mode: true,
             equipment_cursor: 0,
+            achievement_cursor: 0,
             character_cursor: 0,
             character_tab: CharacterTab::Attributes,
             dialogue_title: String::new(),
@@ -210,6 +218,7 @@ impl App {
             status_message: None,
             active_training: None,
             recent_training_level_up: None,
+            achievements: AchievementState::default(),
             pool,
             events: EventHandler::new(),
         }
@@ -314,6 +323,7 @@ impl App {
                 KeyCode::Char('i') => self.events.send(AppEvent::OpenInventory),
                 KeyCode::Char('e') => self.events.send(AppEvent::OpenEquipment),
                 KeyCode::Char('q') => self.events.send(AppEvent::OpenQuests),
+                KeyCode::Char('h') => self.events.send(AppEvent::OpenAchievements),
                 KeyCode::Char('v') => self.events.send(AppEvent::OpenShop),
                 KeyCode::Char('r') => self.events.send(AppEvent::RestAtInn),
                 KeyCode::Esc => self.events.send(AppEvent::Back),
@@ -355,6 +365,12 @@ impl App {
                 KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
                 KeyCode::Enter => self.events.send(AppEvent::QuestAccept),
+                KeyCode::Esc => self.events.send(AppEvent::Back),
+                _ => {}
+            },
+            Screen::Achievements => match key_event.code {
+                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
+                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
                 KeyCode::Esc => self.events.send(AppEvent::Back),
                 _ => {}
             },
@@ -411,6 +427,7 @@ impl App {
             AppEvent::OpenInventory => self.open_inventory().await?,
             AppEvent::OpenEquipment => self.open_equipment().await?,
             AppEvent::OpenQuests => self.open_quests(),
+            AppEvent::OpenAchievements => self.open_achievements(),
             AppEvent::OpenShop => self.open_shop().await?,
             AppEvent::RestAtInn => self.rest_at_inn().await?,
             AppEvent::ExploreSelected => self.explore_selected().await?,
@@ -454,6 +471,11 @@ impl App {
             Screen::Inventory => self.inventory.cursor_up(),
             Screen::Equipment => cycle_cursor(&mut self.equipment_cursor, -1, EquipSlot::ALL.len()),
             Screen::Quests => cycle_cursor(&mut self.quest_cursor, -1, QuestId::ALL.len()),
+            Screen::Achievements => cycle_cursor(
+                &mut self.achievement_cursor,
+                -1,
+                crate::achievements::achievement_defs().len(),
+            ),
             Screen::Shop => self.shop_cursor = self.shop_cursor.saturating_sub(1),
             Screen::CharacterCreation => match self.creation.step {
                 CreationStep::Race => {
@@ -485,6 +507,11 @@ impl App {
             Screen::Inventory => self.inventory.cursor_down(),
             Screen::Equipment => cycle_cursor(&mut self.equipment_cursor, 1, EquipSlot::ALL.len()),
             Screen::Quests => cycle_cursor(&mut self.quest_cursor, 1, QuestId::ALL.len()),
+            Screen::Achievements => cycle_cursor(
+                &mut self.achievement_cursor,
+                1,
+                crate::achievements::achievement_defs().len(),
+            ),
             Screen::Shop => self.shop_cursor += 1,
             Screen::CharacterCreation => match self.creation.step {
                 CreationStep::Race => {
@@ -561,6 +588,7 @@ impl App {
                 TownAction::Inventory => self.open_inventory().await?,
                 TownAction::Equipment => self.open_equipment().await?,
                 TownAction::Quests => self.open_quests(),
+                TownAction::Achievements => self.open_achievements(),
                 TownAction::Shop => self.open_shop().await?,
                 TownAction::Rest => self.rest_at_inn().await?,
                 TownAction::LeaveTown => self.screen = Screen::MainMenu,
@@ -594,6 +622,7 @@ impl App {
             | Screen::Inventory
             | Screen::Equipment
             | Screen::Quests
+            | Screen::Achievements
             | Screen::Shop
             | Screen::Combat => {
                 self.screen = Screen::Town;
@@ -660,6 +689,11 @@ impl App {
         self.screen = Screen::Quests;
     }
 
+    fn open_achievements(&mut self) {
+        self.achievement_cursor = 0;
+        self.screen = Screen::Achievements;
+    }
+
     async fn open_inventory(&mut self) -> color_eyre::Result<()> {
         let Some(ch) = &self.active_character else {
             return Ok(());
@@ -698,6 +732,7 @@ impl App {
         let Some(ch) = self.active_character.as_mut() else {
             return Ok(());
         };
+        let character_id = ch.id;
         let cost = if ch.level <= 2 { 0 } else { 12 };
         if ch.gold < cost {
             self.status_message = Some("You cannot afford a room tonight.".to_string());
@@ -709,12 +744,25 @@ impl App {
         ch.resources.stamina = ch.resources.max_stamina;
         db::save_character_state(&self.pool, ch).await?;
         self.world_state.advance_time(8);
-        db::save_world_state(&self.pool, ch.id, &self.world_state).await?;
-        self.status_message = Some(if cost == 0 {
+        db::save_world_state(&self.pool, character_id, &self.world_state).await?;
+        let unlocked = self
+            .achievement_increment(character_id, "rests_taken", 1)
+            .await?;
+        let spent = if cost > 0 {
+            self.achievement_increment(character_id, "gold_spent", cost)
+                .await?
+        } else {
+            vec![]
+        };
+        let mut message = if cost == 0 {
             "The innkeeper gives you your first night free.".to_string()
         } else {
             format!("You rest, recover fully, and spend {cost} gold.")
-        });
+        };
+        if let Some(name) = unlocked.into_iter().chain(spent.into_iter()).last() {
+            message.push_str(&format!(" Achievement unlocked: {name}."));
+        }
+        self.status_message = Some(message);
         Ok(())
     }
 
@@ -771,15 +819,24 @@ impl App {
         let Some(ch) = &self.active_character else {
             return Ok(());
         };
+        let character_id = ch.id;
         if let Some(current) = self.equipment.get_slot(slot).map(|it| it.to_string()) {
-            db::add_item(&self.pool, ch.id, &current, 1).await?;
+            db::add_item(&self.pool, character_id, &current, 1).await?;
         }
-        db::remove_item(&self.pool, ch.id, &item.item_type, 1).await?;
-        db::equip_item(&self.pool, ch.id, slot, &item.item_type).await?;
-        self.equipment = db::load_equipment(&self.pool, ch.id).await?;
-        self.inventory.items = db::load_inventory(&self.pool, ch.id).await?;
+        db::remove_item(&self.pool, character_id, &item.item_type, 1).await?;
+        db::equip_item(&self.pool, character_id, slot, &item.item_type).await?;
+        self.equipment = db::load_equipment(&self.pool, character_id).await?;
+        self.inventory.items = db::load_inventory(&self.pool, character_id).await?;
         self.inventory.clamp_cursor();
-        self.inventory.last_use_message = Some(format!("Equipped {}.", def.name));
+        let mut message = format!("Equipped {}.", def.name);
+        let mut unlocked = self
+            .achievement_increment(character_id, "items_equipped", 1)
+            .await?;
+        unlocked.extend(self.refresh_meta_achievement_metrics(character_id).await?);
+        if let Some(name) = unlocked.last() {
+            message.push_str(&format!(" Achievement unlocked: {name}."));
+        }
+        self.inventory.last_use_message = Some(message);
         Ok(())
     }
 
@@ -787,18 +844,24 @@ impl App {
         let Some(ch) = &self.active_character else {
             return Ok(());
         };
+        let character_id = ch.id;
         let slot = EquipSlot::ALL[self.equipment_cursor];
         let Some(item_type) = self.equipment.get_slot(slot).map(|it| it.to_string()) else {
             self.status_message = Some("Nothing is equipped in that slot.".to_string());
             return Ok(());
         };
-        db::unequip_item(&self.pool, ch.id, slot).await?;
-        db::add_item(&self.pool, ch.id, &item_type, 1).await?;
-        self.equipment = db::load_equipment(&self.pool, ch.id).await?;
-        self.status_message = Some(format!(
+        db::unequip_item(&self.pool, character_id, slot).await?;
+        db::add_item(&self.pool, character_id, &item_type, 1).await?;
+        self.equipment = db::load_equipment(&self.pool, character_id).await?;
+        let mut message = format!(
             "Unequipped {}.",
             find_def(&item_type).map(|def| def.name).unwrap_or("item")
-        ));
+        );
+        let unlocked = self.refresh_meta_achievement_metrics(character_id).await?;
+        if let Some(name) = unlocked.last() {
+            message.push_str(&format!(" Achievement unlocked: {name}."));
+        }
+        self.status_message = Some(message);
         Ok(())
     }
 
@@ -816,6 +879,7 @@ impl App {
         let Some(ch) = self.active_character.as_mut() else {
             return Ok(());
         };
+        let character_id = ch.id;
         if self.shop_buy_mode {
             let vendor = vendor_def(VendorId::ALL[self.vendor_cursor]);
             let Some(entry) = vendor.inventory.get(
@@ -832,12 +896,19 @@ impl App {
                 return Ok(());
             }
             ch.gold -= def.base_value;
-            db::add_item(&self.pool, ch.id, entry.item_type, 1).await?;
+            db::add_item(&self.pool, character_id, entry.item_type, 1).await?;
             db::save_character_state(&self.pool, ch).await?;
-            self.inventory.items = db::load_inventory(&self.pool, ch.id).await?;
-            self.status_message = Some(format!("Bought {} for {} gold.", def.name, def.base_value));
+            self.inventory.items = db::load_inventory(&self.pool, character_id).await?;
+            let unlocked = self
+                .achievement_increment(character_id, "gold_spent", def.base_value)
+                .await?;
+            let mut message = format!("Bought {} for {} gold.", def.name, def.base_value);
+            if let Some(name) = unlocked.last() {
+                message.push_str(&format!(" Achievement unlocked: {name}."));
+            }
+            self.status_message = Some(message);
         } else {
-            self.inventory.items = db::load_inventory(&self.pool, ch.id).await?;
+            self.inventory.items = db::load_inventory(&self.pool, character_id).await?;
             let Some(item) = self
                 .inventory
                 .items
@@ -858,10 +929,17 @@ impl App {
             }
             let sell_price = (def.base_value * 40) / 100;
             ch.gold += sell_price;
-            db::remove_item(&self.pool, ch.id, &item.item_type, 1).await?;
+            db::remove_item(&self.pool, character_id, &item.item_type, 1).await?;
             db::save_character_state(&self.pool, ch).await?;
-            self.inventory.items = db::load_inventory(&self.pool, ch.id).await?;
-            self.status_message = Some(format!("Sold {} for {} gold.", def.name, sell_price));
+            self.inventory.items = db::load_inventory(&self.pool, character_id).await?;
+            let unlocked = self
+                .achievement_increment(character_id, "gold_earned", sell_price)
+                .await?;
+            let mut message = format!("Sold {} for {} gold.", def.name, sell_price);
+            if let Some(name) = unlocked.last() {
+                message.push_str(&format!(" Achievement unlocked: {name}."));
+            }
+            self.status_message = Some(message);
         }
         Ok(())
     }
@@ -966,17 +1044,6 @@ impl App {
         let Some(training) = self.active_training.take() else {
             return Ok(());
         };
-        let Some(ch) = self.active_character.as_mut() else {
-            return Ok(());
-        };
-        let Some(skill) = ch
-            .proficiencies
-            .iter_mut()
-            .find(|skill| skill.kind == training.skill)
-        else {
-            return Ok(());
-        };
-
         let roll = rand::rng().random_range(1..=100);
         let success = roll <= training.success_chance;
         let xp_gain = if success {
@@ -984,26 +1051,58 @@ impl App {
         } else {
             training.failure_xp
         };
-        let before_level = skill.level();
-        skill.xp += xp_gain;
-        let after_level = skill.level();
+        let Some((character_id, skill_kind, before_level, after_level, new_xp)) = ({
+            let Some(ch) = self.active_character.as_mut() else {
+                return Ok(());
+            };
+            let Some(skill) = ch
+                .proficiencies
+                .iter_mut()
+                .find(|skill| skill.kind == training.skill)
+            else {
+                return Ok(());
+            };
+            let before_level = skill.level();
+            skill.xp += xp_gain;
+            let after_level = skill.level();
+            Some((ch.id, skill.kind, before_level, after_level, skill.xp))
+        }) else {
+            return Ok(());
+        };
         self.world_state.advance_time(training.hours);
 
-        db::save_proficiency_xp(&self.pool, ch.id, skill.kind, skill.xp).await?;
-        db::save_world_state(&self.pool, ch.id, &self.world_state).await?;
+        db::save_proficiency_xp(&self.pool, character_id, skill_kind, new_xp).await?;
+        db::save_world_state(&self.pool, character_id, &self.world_state).await?;
+        let mut unlocked = self
+            .achievement_increment(character_id, "study_sessions", 1)
+            .await?;
+        unlocked.extend(
+            self.achievement_increment(character_id, "study_hours", training.hours)
+                .await?,
+        );
+        if success {
+            unlocked.extend(
+                self.achievement_increment(character_id, "study_successes", 1)
+                    .await?,
+            );
+        }
+        unlocked.extend(self.refresh_meta_achievement_metrics(character_id).await?);
 
         let result = if success { "Success" } else { "Setback" };
         let mut message = format!(
             "{result}: {} training finished after {}h. Roll {} vs {}%, gained {} XP.",
-            skill.kind.name(),
+            skill_kind.name(),
             training.hours,
             roll,
             training.success_chance,
             xp_gain
         );
         if after_level > before_level {
-            self.recent_training_level_up = Some((skill.kind, after_level));
+            self.recent_training_level_up = Some((skill_kind, after_level));
             message.push_str(&format!(" Rank up to {}.", after_level));
+        }
+        if let Some(name) = unlocked.last() {
+            message.push_str(&format!(" Achievement unlocked: {name}."));
         }
         self.status_message = Some(message);
         Ok(())
@@ -1085,6 +1184,8 @@ impl App {
         };
         match outcome {
             CombatOutcome::Won(reward) => {
+                let character_id = character.id;
+                let starting_gold = character.gold;
                 character.resources = self
                     .combat
                     .as_ref()
@@ -1101,6 +1202,70 @@ impl App {
                 db::save_character_state(&self.pool, &character).await?;
                 self.active_character = Some(character.clone());
                 self.inventory.items = db::load_inventory(&self.pool, character.id).await?;
+                let total_gold_earned = character.gold - starting_gold;
+                let mut achievement_lines = vec![];
+                Self::append_achievement_lines(
+                    &mut achievement_lines,
+                    self.achievement_increment(character_id, "combat_victories", 1)
+                        .await?,
+                );
+                Self::append_achievement_lines(
+                    &mut achievement_lines,
+                    self.achievement_increment(
+                        character_id,
+                        "enemy_kills",
+                        reward.enemies_defeated,
+                    )
+                    .await?,
+                );
+                Self::append_achievement_lines(
+                    &mut achievement_lines,
+                    self.achievement_increment(character_id, "beast_kills", reward.beast_kills)
+                        .await?,
+                );
+                Self::append_achievement_lines(
+                    &mut achievement_lines,
+                    self.achievement_increment(character_id, "bandit_kills", reward.bandit_kills)
+                        .await?,
+                );
+                Self::append_achievement_lines(
+                    &mut achievement_lines,
+                    self.achievement_increment(character_id, "undead_kills", reward.undead_kills)
+                        .await?,
+                );
+                Self::append_achievement_lines(
+                    &mut achievement_lines,
+                    self.achievement_increment(character_id, "damage_dealt", reward.damage_dealt)
+                        .await?,
+                );
+                Self::append_achievement_lines(
+                    &mut achievement_lines,
+                    self.achievement_increment(character_id, "ability_uses", reward.ability_uses)
+                        .await?,
+                );
+                Self::append_achievement_lines(
+                    &mut achievement_lines,
+                    self.achievement_increment(
+                        character_id,
+                        "weapon_attacks",
+                        reward.weapon_attacks,
+                    )
+                    .await?,
+                );
+                Self::append_achievement_lines(
+                    &mut achievement_lines,
+                    self.achievement_increment(character_id, "item_uses", reward.item_uses)
+                        .await?,
+                );
+                Self::append_achievement_lines(
+                    &mut achievement_lines,
+                    self.achievement_increment(character_id, "gold_earned", total_gold_earned)
+                        .await?,
+                );
+                Self::append_achievement_lines(
+                    &mut achievement_lines,
+                    self.refresh_meta_achievement_metrics(character_id).await?,
+                );
                 self.combat = None;
                 self.open_dialog(
                     "Victory",
@@ -1132,6 +1297,7 @@ impl App {
                             lines.push(format!("New abilities unlocked: {ability_names}"));
                         }
                         lines.extend(quest_lines);
+                        lines.extend(achievement_lines);
                         lines
                     },
                     Screen::Town,
@@ -1350,12 +1516,102 @@ impl App {
         self.screen = Screen::Dialogue;
     }
 
+    async fn achievement_increment(
+        &mut self,
+        character_id: i64,
+        metric: &str,
+        amount: i32,
+    ) -> color_eyre::Result<Vec<String>> {
+        let unlocked = self.achievements.record_increment(metric, amount);
+        db::save_achievement_metric(
+            &self.pool,
+            character_id,
+            metric,
+            self.achievements.progress_for(metric),
+        )
+        .await?;
+        Ok(unlocked.into_iter().map(|def| def.name).collect())
+    }
+
+    async fn achievement_set_max(
+        &mut self,
+        character_id: i64,
+        metric: &str,
+        value: i32,
+    ) -> color_eyre::Result<Vec<String>> {
+        let unlocked = self.achievements.record_max(metric, value);
+        db::save_achievement_metric(
+            &self.pool,
+            character_id,
+            metric,
+            self.achievements.progress_for(metric),
+        )
+        .await?;
+        Ok(unlocked.into_iter().map(|def| def.name).collect())
+    }
+
+    async fn refresh_meta_achievement_metrics(
+        &mut self,
+        character_id: i64,
+    ) -> color_eyre::Result<Vec<String>> {
+        let mut unlocked = vec![];
+        let Some(ch) = &self.active_character else {
+            return Ok(unlocked);
+        };
+        let best_prof = ch
+            .proficiencies
+            .iter()
+            .map(|skill| skill.level() as i32)
+            .max()
+            .unwrap_or(1);
+        let level = ch.level;
+        let ability_count = ch
+            .known_abilities
+            .iter()
+            .filter(|ability| ability.unlocked)
+            .count() as i32;
+        let equipment_slots_filled = EquipSlot::ALL
+            .iter()
+            .filter(|slot| self.equipment.get_slot(**slot).is_some())
+            .count() as i32;
+        let _ = ch;
+        unlocked.extend(
+            self.achievement_set_max(character_id, "best_proficiency_rank", best_prof)
+                .await?,
+        );
+        unlocked.extend(
+            self.achievement_set_max(character_id, "level_reached", level)
+                .await?,
+        );
+        unlocked.extend(
+            self.achievement_set_max(character_id, "abilities_unlocked", ability_count)
+                .await?,
+        );
+        unlocked.extend(
+            self.achievement_set_max(
+                character_id,
+                "equipment_slots_filled",
+                equipment_slots_filled,
+            )
+            .await?,
+        );
+        Ok(unlocked)
+    }
+
+    fn append_achievement_lines(lines: &mut Vec<String>, unlocked: Vec<String>) {
+        for name in unlocked {
+            lines.push(format!("Achievement unlocked: {name}."));
+        }
+    }
+
     async fn load_session(&mut self, character_id: i64) -> color_eyre::Result<()> {
         self.active_character = Some(db::load_character_by_id(&self.pool, character_id).await?);
         self.world_state = db::load_world_state(&self.pool, character_id).await?;
         self.equipment = db::load_equipment(&self.pool, character_id).await?;
         self.inventory.items = db::load_inventory(&self.pool, character_id).await?;
+        self.achievements = db::load_achievement_state(&self.pool, character_id).await?;
         self.combat = None;
+        self.refresh_meta_achievement_metrics(character_id).await?;
         Ok(())
     }
 

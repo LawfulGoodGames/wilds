@@ -1,3 +1,4 @@
+pub mod achievements;
 pub mod app;
 pub mod character;
 pub mod combat;

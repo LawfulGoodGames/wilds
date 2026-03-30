@@ -27,6 +27,7 @@ pub enum AppEvent {
     OpenInventory,
     OpenEquipment,
     OpenQuests,
+    OpenAchievements,
     OpenShop,
     RestAtInn,
     ExploreSelected,

@@ -1,3 +1,4 @@
+use crate::achievements::AchievementState;
 use crate::character::{
     CharacterCreation, Class, KnownAbility, MinorSkill, ProficiencyData, Race, ResourcePool,
     SavedCharacter, Stats, ability_unlock_level, class_progression, mana_growth, stamina_growth,
@@ -173,6 +174,44 @@ pub async fn save_proficiency_xp(
     .bind(character_id)
     .bind(skill.name())
     .bind(xp)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn load_achievement_state(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<AchievementState> {
+    let rows =
+        sqlx::query("SELECT metric_key, value FROM achievement_metrics WHERE character_id = ?1")
+            .bind(character_id)
+            .fetch_all(pool)
+            .await?;
+    let mut state = AchievementState::default();
+    for row in rows {
+        state.metrics.insert(
+            row.get::<String, _>("metric_key"),
+            row.get::<i64, _>("value") as i32,
+        );
+    }
+    state.recompute_unlocked();
+    Ok(state)
+}
+
+pub async fn save_achievement_metric(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    metric_key: &str,
+    value: i32,
+) -> color_eyre::Result<()> {
+    sqlx::query(
+        "INSERT INTO achievement_metrics (character_id, metric_key, value) VALUES (?1, ?2, ?3)
+         ON CONFLICT(character_id, metric_key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(character_id)
+    .bind(metric_key)
+    .bind(value)
     .execute(pool)
     .await?;
     Ok(())

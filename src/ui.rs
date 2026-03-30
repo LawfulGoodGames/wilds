@@ -6,6 +6,7 @@ use ratatui::{
     widgets::{Block, BorderType, Paragraph, Widget},
 };
 
+use crate::achievements::achievement_defs;
 use crate::app::{
     App, CharacterTab, MenuItem, Screen, TownAction, active_level_progress, active_xp_to_next,
 };
@@ -55,6 +56,7 @@ impl Widget for &App {
             Screen::Inventory => render_inventory(self, area, buf),
             Screen::Equipment => render_equipment(self, area, buf),
             Screen::Quests => render_quests(self, area, buf),
+            Screen::Achievements => render_achievements(self, area, buf),
             Screen::Shop => render_shop(self, area, buf),
             Screen::Dialogue => render_dialogue(self, area, buf),
             Screen::Combat => render_combat(self, area, buf),
@@ -653,7 +655,7 @@ fn render_town(app: &App, area: Rect, buf: &mut Buffer) {
         .render(panels[1], buf);
 
     hint_bar(
-        "↑ ↓ choose    Enter confirm    x explore    c character    i inventory    e equipment    q quests    v vendors    r rest",
+        "↑ ↓ choose    Enter confirm    x explore    c character    i inventory    e equipment    q quests    h achievements    v vendors    r rest",
         chunks[2],
         buf,
     );
@@ -1300,6 +1302,103 @@ fn render_quests(app: &App, area: Rect, buf: &mut Buffer) {
         chunks[2],
         buf,
     );
+}
+
+fn render_achievements(app: &App, area: Rect, buf: &mut Buffer) {
+    let outer = Block::bordered()
+        .title(" Achievements ")
+        .title_alignment(Alignment::Center)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(GOLD));
+    let inner = outer.inner(area);
+    outer.render(area, buf);
+    let chunks = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Min(1),
+        Constraint::Length(2),
+    ])
+    .split(inner);
+    render_status_bar(app, chunks[0], buf);
+    let panels = Layout::horizontal([Constraint::Percentage(44), Constraint::Percentage(56)])
+        .split(chunks[1]);
+    let defs = achievement_defs();
+    let selected_idx = app.achievement_cursor.min(defs.len().saturating_sub(1));
+    let list = defs
+        .iter()
+        .enumerate()
+        .map(|(idx, achievement)| {
+            let unlocked = app.achievements.is_unlocked(&achievement.id);
+            let style = if idx == selected_idx {
+                selected_style()
+            } else if unlocked {
+                Style::default().fg(Color::Green)
+            } else {
+                normal_style()
+            };
+            let marker = if unlocked { "✓" } else { " " };
+            Line::from(Span::styled(
+                format!("{marker} {}", achievement.name),
+                style,
+            ))
+        })
+        .collect::<Vec<_>>();
+    Paragraph::new(list)
+        .block(
+            Block::bordered()
+                .title(" Milestones ")
+                .border_type(BorderType::Rounded)
+                .style(dim_style()),
+        )
+        .render(panels[0], buf);
+
+    let detail = defs
+        .get(selected_idx)
+        .map(|achievement| {
+            let unlocked = app.achievements.is_unlocked(&achievement.id);
+            let progress = app.achievements.progress_toward(&achievement.id);
+            vec![
+                Line::from(Span::styled(
+                    achievement.name.clone(),
+                    Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(format!("Category: {}", achievement.category)),
+                Line::from(if unlocked {
+                    "Status: Unlocked".to_string()
+                } else {
+                    "Status: Locked".to_string()
+                }),
+                Line::from(""),
+                Line::from(achievement.description.clone()),
+                Line::from(""),
+                Line::from(format!("Progress: {progress}/{}", achievement.target)),
+                Line::from(Span::styled(
+                    progress_bar(progress as f64 / achievement.target.max(1) as f64, 28),
+                    if unlocked {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default().fg(Color::Cyan)
+                    },
+                )),
+                Line::from(""),
+                Line::from(format!(
+                    "Unlocked: {}/{}",
+                    app.achievements.unlocked_count(),
+                    defs.len()
+                )),
+            ]
+        })
+        .unwrap_or_else(|| vec![Line::from("No achievement selected.")]);
+    Paragraph::new(detail)
+        .block(
+            Block::bordered()
+                .title(" Detail ")
+                .border_type(BorderType::Rounded)
+                .style(dim_style()),
+        )
+        .wrap(ratatui::widgets::Wrap { trim: true })
+        .render(panels[1], buf);
+    hint_bar("↑ ↓ browse achievements    Esc return", chunks[2], buf);
 }
 
 fn render_shop(app: &App, area: Rect, buf: &mut Buffer) {

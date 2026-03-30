@@ -288,6 +288,14 @@ pub struct CombatReward {
     pub gold: i32,
     pub drops: Vec<(String, i32)>,
     pub defeated_families: Vec<String>,
+    pub enemies_defeated: i32,
+    pub beast_kills: i32,
+    pub bandit_kills: i32,
+    pub undead_kills: i32,
+    pub damage_dealt: i32,
+    pub ability_uses: i32,
+    pub weapon_attacks: i32,
+    pub item_uses: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -316,6 +324,10 @@ pub struct CombatState {
     pub log: Vec<CombatLogEvent>,
     pub new_log_entries: usize,
     pub last_roll_summary: Option<String>,
+    pub player_damage_dealt: i32,
+    pub player_ability_uses: i32,
+    pub player_weapon_attacks: i32,
+    pub player_item_uses: i32,
 }
 
 impl CombatState {
@@ -452,6 +464,10 @@ impl CombatState {
             ))],
             new_log_entries: 1,
             last_roll_summary: None,
+            player_damage_dealt: 0,
+            player_ability_uses: 0,
+            player_weapon_attacks: 0,
+            player_item_uses: 0,
         }
     }
 
@@ -618,6 +634,7 @@ impl CombatState {
             ));
             return;
         };
+        self.player_weapon_attacks += 1;
         self.resolve_attack(
             true,
             None,
@@ -654,6 +671,7 @@ impl CombatState {
         }
         self.pay_cost(ability.resource_kind, ability.cost);
         self.set_player_cooldown(ability.id, ability.cooldown);
+        self.player_ability_uses += 1;
         self.log.push(CombatLogEvent::AbilityUsed {
             actor: self.player.name.clone(),
             ability: ability.name.to_string(),
@@ -723,6 +741,7 @@ impl CombatState {
             .selected_item
             .min(self.consumables.len().saturating_sub(1));
         self.free_item_used = true;
+        self.player_item_uses += 1;
     }
 
     fn apply_item_effect(&mut self, effect: ItemEffect, item_name: &str) {
@@ -1013,6 +1032,9 @@ impl CombatState {
             if let Some(target) = self.enemies.get_mut(self.selected_target) {
                 target.resources.hp = (target.resources.hp - damage).max(0);
             }
+            if player_is_actor {
+                self.player_damage_dealt += damage;
+            }
             if let Some((status, duration, potency)) = apply_status {
                 self.apply_status_to_enemy(self.selected_target, status, duration, potency, label);
             }
@@ -1255,11 +1277,20 @@ impl CombatState {
         let mut xp = 0;
         let mut gold = 0;
         let mut defeated_families = vec![];
+        let mut beast_kills = 0;
+        let mut bandit_kills = 0;
+        let mut undead_kills = 0;
         let mut drops = vec![];
         let mut rng = rand::rng();
         for enemy in &self.enemies {
             if !defeated_families.contains(&enemy.family) {
                 defeated_families.push(enemy.family.clone());
+            }
+            match enemy.family.as_str() {
+                "Beast" => beast_kills += 1,
+                "Bandit" => bandit_kills += 1,
+                "Undead" => undead_kills += 1,
+                _ => {}
             }
             let def = enemy_def_by_name(&enemy.name);
             xp += def.reward_xp;
@@ -1287,6 +1318,14 @@ impl CombatState {
             gold,
             drops,
             defeated_families,
+            enemies_defeated: self.enemies.len() as i32,
+            beast_kills,
+            bandit_kills,
+            undead_kills,
+            damage_dealt: self.player_damage_dealt,
+            ability_uses: self.player_ability_uses,
+            weapon_attacks: self.player_weapon_attacks,
+            item_uses: self.player_item_uses,
         }
     }
 
