@@ -1,18 +1,18 @@
+mod input;
+mod progression;
+
+use self::input::cycle_cursor;
 use crate::achievements::AchievementState;
-use crate::character::{
-    CharacterCreation, Class, CreationStep, GearPackage, MAX_COMBAT_PROFICIENCY_RANK,
-    MAX_PROFICIENCY_LEVEL, MajorSkill, MinorSkill, Race, SavedCharacter, level_progress_pct,
-    major_study_plan, study_plan, xp_to_next_level,
-};
+use crate::character::{CharacterCreation, CreationStep, MajorSkill, MinorSkill, SavedCharacter};
 use crate::combat::{ActionTab, CombatOutcome, CombatState, PlayerAction, ability_def};
 use crate::db;
 use crate::event::{AppEvent, Event, EventHandler};
 use crate::inventory::{EquipSlot, Equipment, InventoryState, ItemEffect, find_def};
-use crate::settings::{OPTIONS_COUNT, UserSettings};
+use crate::settings::UserSettings;
 use crate::world::{
     AreaId, ObjectiveKind, QuestId, VendorId, WorldState, area_def, quest_def, vendor_def,
 };
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+pub use progression::{active_level_progress, active_xp_to_next};
 use rand::RngExt;
 use ratatui::DefaultTerminal;
 use sqlx::SqlitePool;
@@ -270,162 +270,6 @@ impl App {
         Ok(())
     }
 
-    fn handle_key_events(&mut self, key_event: KeyEvent) -> color_eyre::Result<()> {
-        if key_event.modifiers == KeyModifiers::CONTROL
-            && matches!(key_event.code, KeyCode::Char('c' | 'C'))
-        {
-            self.events.send(AppEvent::Quit);
-            return Ok(());
-        }
-
-        match self.screen {
-            Screen::MainMenu => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Enter => self.events.send(AppEvent::Confirm),
-                KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Quit),
-                _ => {}
-            },
-            Screen::CharacterCreation => match self.creation.step {
-                CreationStep::Name => match key_event.code {
-                    KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                        if self.creation.name.len() < 24 {
-                            self.creation.name.push(c);
-                        }
-                    }
-                    KeyCode::Backspace => {
-                        self.creation.name.pop();
-                    }
-                    KeyCode::Enter if !self.creation.name.trim().is_empty() => {
-                        self.events.send(AppEvent::Confirm)
-                    }
-                    KeyCode::Esc => self.events.send(AppEvent::Back),
-                    _ => {}
-                },
-                _ => match key_event.code {
-                    KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                    KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                    KeyCode::Left | KeyCode::Char('h') => self.events.send(AppEvent::Left),
-                    KeyCode::Right | KeyCode::Char('l') => self.events.send(AppEvent::Right),
-                    KeyCode::Enter => self.events.send(AppEvent::Confirm),
-                    KeyCode::Esc => self.events.send(AppEvent::Back),
-                    _ => {}
-                },
-            },
-            Screen::LoadGame => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Enter => self.events.send(AppEvent::Confirm),
-                KeyCode::Esc => self.events.send(AppEvent::Back),
-                _ => {}
-            },
-            Screen::Options => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Left | KeyCode::Char('h') => self.events.send(AppEvent::Left),
-                KeyCode::Right | KeyCode::Char('l') => self.events.send(AppEvent::Right),
-                KeyCode::Esc => self.events.send(AppEvent::Back),
-                _ => {}
-            },
-            Screen::Town => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Enter => self.events.send(AppEvent::Confirm),
-                KeyCode::Char('x') => self.events.send(AppEvent::OpenExplore),
-                KeyCode::Char('c') => self.events.send(AppEvent::OpenCharacter),
-                KeyCode::Char('i') => self.events.send(AppEvent::OpenInventory),
-                KeyCode::Char('e') => self.events.send(AppEvent::OpenEquipment),
-                KeyCode::Char('q') => self.events.send(AppEvent::OpenQuests),
-                KeyCode::Char('h') => self.events.send(AppEvent::OpenAchievements),
-                KeyCode::Char('v') => self.events.send(AppEvent::OpenShop),
-                KeyCode::Char('r') => self.events.send(AppEvent::RestAtInn),
-                KeyCode::Esc => self.events.send(AppEvent::Back),
-                _ => {}
-            },
-            Screen::Explore => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Enter => self.events.send(AppEvent::ExploreSelected),
-                KeyCode::Esc => self.events.send(AppEvent::Back),
-                _ => {}
-            },
-            Screen::CharacterSheet => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Left | KeyCode::Char('h') => self.events.send(AppEvent::Left),
-                KeyCode::Right | KeyCode::Char('l') => self.events.send(AppEvent::Right),
-                KeyCode::Enter | KeyCode::Char('t') => self.events.send(AppEvent::Confirm),
-                KeyCode::Tab => self.events.send(AppEvent::NextTab),
-                KeyCode::Esc => self.events.send(AppEvent::Back),
-                _ => {}
-            },
-            Screen::Inventory => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Enter => self.events.send(AppEvent::Confirm),
-                KeyCode::Char('e') => self.events.send(AppEvent::Right),
-                KeyCode::Esc => self.events.send(AppEvent::Back),
-                _ => {}
-            },
-            Screen::Equipment => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Enter => self.events.send(AppEvent::Confirm),
-                KeyCode::Esc => self.events.send(AppEvent::Back),
-                _ => {}
-            },
-            Screen::Quests => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Enter => self.events.send(AppEvent::QuestAccept),
-                KeyCode::Esc => self.events.send(AppEvent::Back),
-                _ => {}
-            },
-            Screen::Achievements => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Esc => self.events.send(AppEvent::Back),
-                _ => {}
-            },
-            Screen::Shop => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Enter => self.events.send(AppEvent::ShopTransaction),
-                KeyCode::Tab => self.events.send(AppEvent::ShopToggleMode),
-                KeyCode::Left | KeyCode::Char('h') => {
-                    self.events.send(AppEvent::ShopPreviousVendor)
-                }
-                KeyCode::Right | KeyCode::Char('l') => self.events.send(AppEvent::ShopNextVendor),
-                KeyCode::Esc => self.events.send(AppEvent::Back),
-                _ => {}
-            },
-            Screen::Dialogue => match key_event.code {
-                KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => {
-                    self.events.send(AppEvent::Back)
-                }
-                _ => {}
-            },
-            Screen::Combat => match key_event.code {
-                KeyCode::Char('1') => self.events.send(AppEvent::CombatTabWeapon),
-                KeyCode::Char('2') => self.events.send(AppEvent::CombatTabAbility),
-                KeyCode::Char('3') => self.events.send(AppEvent::CombatTabItem),
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::CombatCycleOptionUp),
-                KeyCode::Down | KeyCode::Char('j') => {
-                    self.events.send(AppEvent::CombatCycleOptionDown)
-                }
-                KeyCode::Tab => self.events.send(AppEvent::CombatCycleTarget),
-                KeyCode::Enter | KeyCode::Char('a') => {
-                    self.events.send(AppEvent::CombatUseSelected)
-                }
-                KeyCode::Char('d') => self.events.send(AppEvent::CombatDefend),
-                KeyCode::Char('f') => self.events.send(AppEvent::CombatFlee),
-                KeyCode::Esc => self.events.send(AppEvent::CombatFlee),
-                _ => {}
-            },
-        }
-        Ok(())
-    }
-
     async fn handle_app_event(&mut self, event: AppEvent) -> color_eyre::Result<()> {
         match event {
             AppEvent::SelectUp => self.select_up(),
@@ -465,100 +309,6 @@ impl App {
                     .await?
             }
             AppEvent::Quit => self.quit(),
-        }
-        Ok(())
-    }
-
-    fn select_up(&mut self) {
-        match self.screen {
-            Screen::MainMenu => cycle_cursor(&mut self.selected, -1, MenuItem::ALL.len()),
-            Screen::Options => cycle_cursor(&mut self.options_cursor, -1, OPTIONS_COUNT),
-            Screen::LoadGame if !self.saved_characters.is_empty() => {
-                cycle_cursor(&mut self.load_cursor, -1, self.saved_characters.len())
-            }
-            Screen::Town => cycle_cursor(&mut self.town_cursor, -1, TownAction::ALL.len()),
-            Screen::Explore => cycle_cursor(&mut self.explore_cursor, -1, AreaId::ALL.len()),
-            Screen::CharacterSheet => {
-                self.character_cursor = self.character_cursor.saturating_sub(1)
-            }
-            Screen::Inventory => self.inventory.cursor_up(),
-            Screen::Equipment => cycle_cursor(&mut self.equipment_cursor, -1, EquipSlot::ALL.len()),
-            Screen::Quests => cycle_cursor(&mut self.quest_cursor, -1, QuestId::ALL.len()),
-            Screen::Achievements => cycle_cursor(
-                &mut self.achievement_cursor,
-                -1,
-                crate::achievements::achievement_defs().len(),
-            ),
-            Screen::Shop => self.shop_cursor = self.shop_cursor.saturating_sub(1),
-            Screen::CharacterCreation => match self.creation.step {
-                CreationStep::Race => {
-                    cycle_cursor(&mut self.creation.race_cursor, -1, Race::ALL.len())
-                }
-                CreationStep::Class => {
-                    cycle_cursor(&mut self.creation.class_cursor, -1, Class::ALL.len())
-                }
-                CreationStep::Stats => cycle_cursor(&mut self.creation.stat_cursor, -1, 6),
-                CreationStep::Gear => {
-                    cycle_cursor(&mut self.creation.gear_cursor, -1, GearPackage::ALL.len())
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-    }
-
-    fn select_down(&mut self) {
-        match self.screen {
-            Screen::MainMenu => cycle_cursor(&mut self.selected, 1, MenuItem::ALL.len()),
-            Screen::Options => cycle_cursor(&mut self.options_cursor, 1, OPTIONS_COUNT),
-            Screen::LoadGame if !self.saved_characters.is_empty() => {
-                cycle_cursor(&mut self.load_cursor, 1, self.saved_characters.len())
-            }
-            Screen::Town => cycle_cursor(&mut self.town_cursor, 1, TownAction::ALL.len()),
-            Screen::Explore => cycle_cursor(&mut self.explore_cursor, 1, AreaId::ALL.len()),
-            Screen::CharacterSheet => self.character_cursor += 1,
-            Screen::Inventory => self.inventory.cursor_down(),
-            Screen::Equipment => cycle_cursor(&mut self.equipment_cursor, 1, EquipSlot::ALL.len()),
-            Screen::Quests => cycle_cursor(&mut self.quest_cursor, 1, QuestId::ALL.len()),
-            Screen::Achievements => cycle_cursor(
-                &mut self.achievement_cursor,
-                1,
-                crate::achievements::achievement_defs().len(),
-            ),
-            Screen::Shop => self.shop_cursor += 1,
-            Screen::CharacterCreation => match self.creation.step {
-                CreationStep::Race => {
-                    cycle_cursor(&mut self.creation.race_cursor, 1, Race::ALL.len())
-                }
-                CreationStep::Class => {
-                    cycle_cursor(&mut self.creation.class_cursor, 1, Class::ALL.len())
-                }
-                CreationStep::Stats => cycle_cursor(&mut self.creation.stat_cursor, 1, 6),
-                CreationStep::Gear => {
-                    cycle_cursor(&mut self.creation.gear_cursor, 1, GearPackage::ALL.len())
-                }
-                _ => {}
-            },
-            _ => {}
-        }
-    }
-
-    fn handle_left(&mut self) {
-        match self.screen {
-            Screen::Options => self.change_option(-1),
-            Screen::CharacterCreation => self.creation.adjust_stat(-1),
-            Screen::CharacterSheet => self.change_character_tab(-1),
-            _ => {}
-        }
-    }
-
-    async fn handle_right(&mut self) -> color_eyre::Result<()> {
-        match self.screen {
-            Screen::Options => self.change_option(1),
-            Screen::CharacterCreation => self.creation.adjust_stat(1),
-            Screen::CharacterSheet => self.change_character_tab(1),
-            Screen::Inventory => self.equip_selected_item().await?,
-            _ => {}
         }
         Ok(())
     }
@@ -646,43 +396,6 @@ impl App {
             _ => self.screen = Screen::MainMenu,
         }
         Ok(())
-    }
-
-    fn change_option(&mut self, dir: i32) {
-        match self.options_cursor {
-            0 => self.settings.sound_effects = !self.settings.sound_effects,
-            1 => {
-                if dir > 0 {
-                    self.settings.music_volume =
-                        self.settings.music_volume.saturating_add(10).min(100);
-                } else {
-                    self.settings.music_volume = self.settings.music_volume.saturating_sub(10);
-                }
-            }
-            2 => {
-                self.settings.font_size = if dir > 0 {
-                    self.settings.font_size.cycle_next()
-                } else {
-                    self.settings.font_size.cycle_prev()
-                };
-            }
-            3 => {
-                self.settings.color_theme = if dir > 0 {
-                    self.settings.color_theme.cycle_next()
-                } else {
-                    self.settings.color_theme.cycle_prev()
-                };
-            }
-            4 => self.settings.show_hints = !self.settings.show_hints,
-            5 => {
-                self.settings.difficulty = if dir > 0 {
-                    self.settings.difficulty.cycle_next()
-                } else {
-                    self.settings.difficulty.cycle_prev()
-                };
-            }
-            _ => {}
-        }
     }
 
     fn open_explore(&mut self) {
@@ -1012,148 +725,6 @@ impl App {
         Ok(())
     }
 
-    async fn train_selected_proficiency(&mut self) -> color_eyre::Result<()> {
-        if let Some(training) = &self.active_training {
-            self.status_message = Some(format!(
-                "You are already studying {}. Wait for the current session to finish.",
-                training.target.name()
-            ));
-            return Ok(());
-        }
-
-        let Some(ch) = self.active_character.as_mut() else {
-            return Ok(());
-        };
-        let (target, plan) = if self.character_cursor < MajorSkill::ALL.len() {
-            let skill = MajorSkill::ALL[self.character_cursor];
-            if ch.major_skill(skill) >= MAX_COMBAT_PROFICIENCY_RANK {
-                self.status_message = Some(format!("{} is already mastered.", skill.full_name()));
-                return Ok(());
-            }
-            (
-                ProficiencyTarget::Major(skill),
-                major_study_plan(skill, ch.major_skill(skill), &ch.stats),
-            )
-        } else {
-            let skill_idx = (self.character_cursor - MajorSkill::ALL.len())
-                .min(ch.proficiencies.len().saturating_sub(1));
-            let Some(skill) = ch.proficiencies.get_mut(skill_idx) else {
-                return Ok(());
-            };
-            if skill.level() >= MAX_PROFICIENCY_LEVEL {
-                self.status_message = Some(format!("{} is already mastered.", skill.kind.name()));
-                return Ok(());
-            }
-            (
-                ProficiencyTarget::Minor(skill.kind),
-                study_plan(skill.kind, skill.xp, &ch.stats),
-            )
-        };
-        self.recent_training_level_up = None;
-        self.active_training = Some(ActiveTraining {
-            target,
-            total_ticks: (plan.hours.max(1) as u32) * TRAINING_TICKS_PER_HOUR,
-            elapsed_ticks: 0,
-            hours: plan.hours,
-            success_chance: plan.success_chance,
-            success_gain: plan.success_xp,
-            failure_gain: plan.failure_xp,
-        });
-        self.status_message = Some(format!(
-            "You begin studying {}. Progress will complete over time.",
-            target.name(),
-        ));
-        Ok(())
-    }
-
-    async fn resolve_training_completion(&mut self) -> color_eyre::Result<()> {
-        let Some(training) = self.active_training.take() else {
-            return Ok(());
-        };
-        let roll = rand::rng().random_range(1..=100);
-        let success = roll <= training.success_chance;
-        let gain = if success {
-            training.success_gain
-        } else {
-            training.failure_gain
-        };
-        let Some((character_id, target, before_level, after_level, maybe_xp)) = ({
-            let Some(ch) = self.active_character.as_mut() else {
-                return Ok(());
-            };
-            match training.target {
-                ProficiencyTarget::Major(skill) => {
-                    let before = ch.major_skill(skill);
-                    ch.stats.add_skill(skill, gain);
-                    let after = ch.major_skill(skill);
-                    Some((ch.id, ProficiencyTarget::Major(skill), before, after, None))
-                }
-                ProficiencyTarget::Minor(skill_kind) => {
-                    let Some(skill) = ch
-                        .proficiencies
-                        .iter_mut()
-                        .find(|skill| skill.kind == skill_kind)
-                    else {
-                        return Ok(());
-                    };
-                    let before = skill.level() as i32;
-                    skill.xp += gain;
-                    let after = skill.level() as i32;
-                    Some((
-                        ch.id,
-                        ProficiencyTarget::Minor(skill.kind),
-                        before,
-                        after,
-                        Some(skill.xp),
-                    ))
-                }
-            }
-        }) else {
-            return Ok(());
-        };
-        self.world_state.advance_time(training.hours);
-
-        if let (ProficiencyTarget::Minor(skill_kind), Some(new_xp)) = (target, maybe_xp) {
-            db::save_proficiency_xp(&self.pool, character_id, skill_kind, new_xp).await?;
-        } else if let Some(ch) = &self.active_character {
-            db::save_character_state(&self.pool, ch).await?;
-        }
-        db::save_world_state(&self.pool, character_id, &self.world_state).await?;
-        let mut unlocked = self
-            .achievement_increment(character_id, "study_sessions", 1)
-            .await?;
-        unlocked.extend(
-            self.achievement_increment(character_id, "study_hours", training.hours)
-                .await?,
-        );
-        if success {
-            unlocked.extend(
-                self.achievement_increment(character_id, "study_successes", 1)
-                    .await?,
-            );
-        }
-        unlocked.extend(self.refresh_meta_achievement_metrics(character_id).await?);
-
-        let result = if success { "Success" } else { "Setback" };
-        let mut message = format!(
-            "{result}: {} training finished after {}h. Roll {} vs {}%, gained {} progress.",
-            target.name(),
-            training.hours,
-            roll,
-            training.success_chance,
-            gain
-        );
-        if after_level > before_level {
-            self.recent_training_level_up = Some((target, after_level));
-            message.push_str(&format!(" Rank up to {}.", after_level));
-        }
-        if let Some(name) = unlocked.last() {
-            message.push_str(&format!(" Achievement unlocked: {name}."));
-        }
-        self.status_message = Some(message);
-        Ok(())
-    }
-
     async fn start_combat(&mut self, encounter_id: &str) -> color_eyre::Result<()> {
         let Some(ch) = &self.active_character else {
             return Ok(());
@@ -1174,24 +745,6 @@ impl App {
         }
         self.screen = Screen::Combat;
         Ok(())
-    }
-
-    fn set_combat_tab(&mut self, tab: ActionTab) {
-        if let Some(combat) = self.combat.as_mut() {
-            combat.set_tab(tab);
-        }
-    }
-
-    fn cycle_combat_option(&mut self, dir: i32) {
-        if let Some(combat) = self.combat.as_mut() {
-            combat.cycle_selection(dir);
-        }
-    }
-
-    fn cycle_combat_target(&mut self, dir: i32) {
-        if let Some(combat) = self.combat.as_mut() {
-            combat.cycle_target(dir);
-        }
     }
 
     async fn handle_combat_action(&mut self) -> color_eyre::Result<()> {
@@ -1541,20 +1094,6 @@ impl App {
         Ok(rewards)
     }
 
-    fn change_character_tab(&mut self, dir: i32) {
-        let idx = CharacterTab::ALL
-            .iter()
-            .position(|tab| *tab == self.character_tab)
-            .unwrap_or(0);
-        let next = (idx as i32 + dir).rem_euclid(CharacterTab::ALL.len() as i32) as usize;
-        self.character_tab = CharacterTab::ALL[next];
-        self.character_cursor = 0;
-    }
-
-    fn next_character_tab(&mut self) {
-        self.change_character_tab(1);
-    }
-
     fn open_dialog(&mut self, title: &str, lines: Vec<String>, return_screen: Screen) {
         self.dialogue_title = title.to_string();
         self.dialogue_lines = lines;
@@ -1562,128 +1101,7 @@ impl App {
         self.screen = Screen::Dialogue;
     }
 
-    async fn achievement_increment(
-        &mut self,
-        character_id: i64,
-        metric: &str,
-        amount: i32,
-    ) -> color_eyre::Result<Vec<String>> {
-        let unlocked = self.achievements.record_increment(metric, amount);
-        db::save_achievement_metric(
-            &self.pool,
-            character_id,
-            metric,
-            self.achievements.progress_for(metric),
-        )
-        .await?;
-        Ok(unlocked.into_iter().map(|def| def.name).collect())
-    }
-
-    async fn achievement_set_max(
-        &mut self,
-        character_id: i64,
-        metric: &str,
-        value: i32,
-    ) -> color_eyre::Result<Vec<String>> {
-        let unlocked = self.achievements.record_max(metric, value);
-        db::save_achievement_metric(
-            &self.pool,
-            character_id,
-            metric,
-            self.achievements.progress_for(metric),
-        )
-        .await?;
-        Ok(unlocked.into_iter().map(|def| def.name).collect())
-    }
-
-    async fn refresh_meta_achievement_metrics(
-        &mut self,
-        character_id: i64,
-    ) -> color_eyre::Result<Vec<String>> {
-        let mut unlocked = vec![];
-        let Some(ch) = &self.active_character else {
-            return Ok(unlocked);
-        };
-        let best_prof = MajorSkill::ALL
-            .iter()
-            .map(|skill| ch.major_skill(*skill))
-            .chain(ch.proficiencies.iter().map(|skill| skill.level() as i32))
-            .max()
-            .unwrap_or(1);
-        let level = ch.level;
-        let ability_count = ch
-            .known_abilities
-            .iter()
-            .filter(|ability| ability.unlocked)
-            .count() as i32;
-        let equipment_slots_filled = EquipSlot::ALL
-            .iter()
-            .filter(|slot| self.equipment.get_slot(**slot).is_some())
-            .count() as i32;
-        let _ = ch;
-        unlocked.extend(
-            self.achievement_set_max(character_id, "best_proficiency_rank", best_prof)
-                .await?,
-        );
-        unlocked.extend(
-            self.achievement_set_max(character_id, "level_reached", level)
-                .await?,
-        );
-        unlocked.extend(
-            self.achievement_set_max(character_id, "abilities_unlocked", ability_count)
-                .await?,
-        );
-        unlocked.extend(
-            self.achievement_set_max(
-                character_id,
-                "equipment_slots_filled",
-                equipment_slots_filled,
-            )
-            .await?,
-        );
-        Ok(unlocked)
-    }
-
-    fn append_achievement_lines(lines: &mut Vec<String>, unlocked: Vec<String>) {
-        for name in unlocked {
-            lines.push(format!("Achievement unlocked: {name}."));
-        }
-    }
-
-    async fn load_session(&mut self, character_id: i64) -> color_eyre::Result<()> {
-        self.active_character = Some(db::load_character_by_id(&self.pool, character_id).await?);
-        self.world_state = db::load_world_state(&self.pool, character_id).await?;
-        self.equipment = db::load_equipment(&self.pool, character_id).await?;
-        self.inventory.items = db::load_inventory(&self.pool, character_id).await?;
-        self.achievements = db::load_achievement_state(&self.pool, character_id).await?;
-        self.combat = None;
-        self.refresh_meta_achievement_metrics(character_id).await?;
-        Ok(())
-    }
-
     fn quit(&mut self) {
         self.running = false;
     }
-}
-
-fn cycle_cursor(cursor: &mut usize, dir: i32, len: usize) {
-    if len == 0 {
-        *cursor = 0;
-        return;
-    }
-    *cursor = ((*cursor as i32 + dir).rem_euclid(len as i32)) as usize;
-}
-
-pub fn active_level_progress(app: &App) -> f64 {
-    app.active_character
-        .as_ref()
-        .map(|character| level_progress_pct(character.xp))
-        .unwrap_or(0.0)
-}
-
-pub fn active_xp_to_next(app: &App) -> i32 {
-    app.active_character
-        .as_ref()
-        .map(|character| xp_to_next_level(character.xp))
-        .unwrap_or(0)
 }
