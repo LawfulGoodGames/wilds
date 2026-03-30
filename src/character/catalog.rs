@@ -1,4 +1,30 @@
-use super::proficiencies::{MajorSkill, STAT_POINTS, Stats};
+use super::proficiencies::{MajorSkill, MinorSkill, STAT_POINTS, Stats, proficiency_xp_for_level};
+
+const CREATION_BASE_PROFICIENCY: i32 = 8;
+const CREATION_MAX_PROFICIENCY: i32 = 13;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MinorSkillBonuses {
+    pub vitality: i32,
+    pub agility: i32,
+    pub alchemy: i32,
+    pub larceny: i32,
+    pub runecraft: i32,
+    pub crafting: i32,
+}
+
+impl MinorSkillBonuses {
+    pub fn by_skill(&self, skill: MinorSkill) -> i32 {
+        match skill {
+            MinorSkill::Vitality => self.vitality,
+            MinorSkill::Agility => self.agility,
+            MinorSkill::Alchemy => self.alchemy,
+            MinorSkill::Larceny => self.larceny,
+            MinorSkill::Runecraft => self.runecraft,
+            MinorSkill::Crafting => self.crafting,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Race {
@@ -53,13 +79,13 @@ impl Race {
     pub fn bonus_label(self) -> &'static str {
         match self {
             Self::Human => "+1 to all proficiencies",
-            Self::Elf => "+2 Ranged, +1 Magic",
-            Self::Dwarf => "+2 Defence, +1 Strength",
-            Self::Halfling => "+2 Ranged, +1 Attack",
-            Self::Orc => "+2 Strength, +1 Defence",
-            Self::Tiefling => "+2 Attack, +1 Magic",
-            Self::Gnome => "+2 Magic, +1 Prayer",
-            Self::Dragonborn => "+2 Strength, +1 Attack",
+            Self::Elf => "+2 Ranged, +1 Magic, +1 Agility, +1 Runecraft",
+            Self::Dwarf => "+2 Defence, +1 Strength, +1 Vitality, +1 Crafting, +1 Alchemy",
+            Self::Halfling => "+2 Ranged, +1 Attack, +1 Agility, +1 Larceny",
+            Self::Orc => "+2 Strength, +1 Defence, +1 Vitality, +1 Crafting",
+            Self::Tiefling => "+2 Attack, +1 Magic, +1 Alchemy, +1 Larceny, +1 Runecraft",
+            Self::Gnome => "+2 Magic, +1 Prayer, +1 Alchemy, +1 Runecraft, +1 Crafting",
+            Self::Dragonborn => "+2 Strength, +1 Attack, +1 Vitality, +1 Crafting",
         }
     }
 
@@ -108,6 +134,52 @@ impl Race {
             Self::Dragonborn => {
                 out.strength = 2;
                 out.charisma = 1;
+            }
+        }
+        out
+    }
+
+    pub fn minor_skill_bonuses(self) -> MinorSkillBonuses {
+        let mut out = MinorSkillBonuses::default();
+        match self {
+            Self::Human => {
+                out.vitality = 1;
+                out.agility = 1;
+                out.alchemy = 1;
+                out.larceny = 1;
+                out.runecraft = 1;
+                out.crafting = 1;
+            }
+            Self::Elf => {
+                out.agility = 1;
+                out.runecraft = 1;
+            }
+            Self::Dwarf => {
+                out.vitality = 1;
+                out.crafting = 1;
+                out.alchemy = 1;
+            }
+            Self::Halfling => {
+                out.agility = 1;
+                out.larceny = 1;
+            }
+            Self::Orc => {
+                out.vitality = 1;
+                out.crafting = 1;
+            }
+            Self::Tiefling => {
+                out.alchemy = 1;
+                out.larceny = 1;
+                out.runecraft = 1;
+            }
+            Self::Gnome => {
+                out.alchemy = 1;
+                out.runecraft = 1;
+                out.crafting = 1;
+            }
+            Self::Dragonborn => {
+                out.vitality = 1;
+                out.crafting = 1;
             }
         }
         out
@@ -298,6 +370,7 @@ pub struct CharacterCreation {
     pub class_cursor: usize,
     pub stat_cursor: usize,
     pub base_stats: Stats,
+    pub minor_proficiencies: [i32; MinorSkill::ALL.len()],
     pub points_remaining: i32,
     pub gear_cursor: usize,
 }
@@ -311,6 +384,7 @@ impl Default for CharacterCreation {
             class_cursor: 0,
             stat_cursor: 0,
             base_stats: Stats::default(),
+            minor_proficiencies: [CREATION_BASE_PROFICIENCY; MinorSkill::ALL.len()],
             points_remaining: STAT_POINTS,
             gear_cursor: 0,
         }
@@ -335,15 +409,54 @@ impl CharacterCreation {
             .add_bonuses(&self.selected_race().stat_bonuses())
     }
 
+    pub fn proficiency_count(&self) -> usize {
+        MajorSkill::ALL.len() + MinorSkill::ALL.len()
+    }
+
+    pub fn minor_proficiency_rank(&self, skill: MinorSkill) -> i32 {
+        self.minor_proficiencies[Self::minor_index(skill)]
+    }
+
+    pub fn starting_proficiency_xp(&self, skill: MinorSkill) -> i32 {
+        let total_rank = self.final_minor_proficiency_rank(skill);
+        proficiency_xp_for_level(total_rank as u32) as i32
+    }
+
+    pub fn final_minor_proficiency_rank(&self, skill: MinorSkill) -> i32 {
+        self.minor_proficiency_rank(skill)
+            + self.selected_race().minor_skill_bonuses().by_skill(skill)
+    }
+
+    fn minor_index(skill: MinorSkill) -> usize {
+        MinorSkill::ALL
+            .iter()
+            .position(|candidate| *candidate == skill)
+            .unwrap_or(0)
+    }
+
     pub fn adjust_stat(&mut self, dir: i32) {
-        let skill = MajorSkill::ALL[self.stat_cursor];
-        let current = self.base_stats.by_skill(skill);
-        if dir > 0 && self.points_remaining > 0 && current < 13 {
-            self.base_stats.add_skill(skill, 1);
-            self.points_remaining -= 1;
-        } else if dir < 0 && current > 8 {
-            self.base_stats.add_skill(skill, -1);
-            self.points_remaining += 1;
+        if self.stat_cursor < MajorSkill::ALL.len() {
+            let skill = MajorSkill::ALL[self.stat_cursor];
+            let current = self.base_stats.by_skill(skill);
+            if dir > 0 && self.points_remaining > 0 && current < CREATION_MAX_PROFICIENCY {
+                self.base_stats.add_skill(skill, 1);
+                self.points_remaining -= 1;
+            } else if dir < 0 && current > CREATION_BASE_PROFICIENCY {
+                self.base_stats.add_skill(skill, -1);
+                self.points_remaining += 1;
+            }
+            return;
+        }
+
+        let minor_idx = self.stat_cursor - MajorSkill::ALL.len();
+        if let Some(rank) = self.minor_proficiencies.get_mut(minor_idx) {
+            if dir > 0 && self.points_remaining > 0 && *rank < CREATION_MAX_PROFICIENCY {
+                *rank += 1;
+                self.points_remaining -= 1;
+            } else if dir < 0 && *rank > CREATION_BASE_PROFICIENCY {
+                *rank -= 1;
+                self.points_remaining += 1;
+            }
         }
     }
 }

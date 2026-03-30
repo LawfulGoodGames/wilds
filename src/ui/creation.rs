@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::app::App;
-use crate::character::{Class, CreationStep, GearPackage, MajorSkill, Race};
+use crate::character::{Class, CreationStep, GearPackage, MajorSkill, MinorSkill, Race};
 use crate::inventory::{EquipSlot, find_def, gear_package_items};
 
 use super::shared::{GOLD, dim_style, hint_bar, normal_style, selected_style, stat_bar};
@@ -193,6 +193,7 @@ fn render_creation_class(app: &App, content: Rect, hint: Rect, buf: &mut Buffer)
 fn render_creation_proficiencies(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) {
     let c = &app.creation;
     let bonuses = c.selected_race().stat_bonuses();
+    let minor_bonuses = c.selected_race().minor_skill_bonuses();
     let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(content);
     Paragraph::new(Line::from(vec![
         Span::styled("Points remaining: ", dim_style()),
@@ -205,11 +206,14 @@ fn render_creation_proficiencies(app: &App, content: Rect, hint: Rect, buf: &mut
     .alignment(Alignment::Center)
     .render(chunks[0], buf);
 
-    let lines = (0..6)
-        .map(|idx| {
-            let skill = MajorSkill::ALL[idx];
-            let base = c.base_stats.by_skill(skill);
-            let bonus = bonuses.by_skill(skill);
+    let panels = Layout::horizontal([Constraint::Percentage(48), Constraint::Percentage(52)])
+        .split(chunks[1]);
+    let lines = MajorSkill::ALL
+        .iter()
+        .enumerate()
+        .map(|(idx, skill)| {
+            let base = c.base_stats.by_skill(*skill);
+            let bonus = bonuses.by_skill(*skill);
             let total = base + bonus;
             let label_style = if idx == c.stat_cursor {
                 selected_style()
@@ -218,12 +222,7 @@ fn render_creation_proficiencies(app: &App, content: Rect, hint: Rect, buf: &mut
             };
             let mut spans = vec![
                 Span::styled(
-                    format!(
-                        "  {:<3} {:<13} {:>2}",
-                        skill.short_name(),
-                        skill.full_name(),
-                        base
-                    ),
+                    format!("      {:<13} {:>2}", skill.full_name(), base),
                     label_style,
                 ),
                 Span::styled(stat_bar(base - 8, 5), Style::default().fg(Color::Cyan)),
@@ -236,7 +235,43 @@ fn render_creation_proficiencies(app: &App, content: Rect, hint: Rect, buf: &mut
             }
             Line::from(spans)
         })
+        .chain(
+            MinorSkill::ALL
+                .iter()
+                .enumerate()
+                .map(|(minor_idx, skill)| {
+                    let idx = MajorSkill::ALL.len() + minor_idx;
+                    let rank = c.minor_proficiency_rank(*skill);
+                    let bonus = minor_bonuses.by_skill(*skill);
+                    let total = rank + bonus;
+                    let label_style = if idx == c.stat_cursor {
+                        selected_style()
+                    } else {
+                        normal_style()
+                    };
+                    let mut spans = vec![
+                        Span::styled(
+                            format!("      {:<13} {:>2}", skill.name(), rank),
+                            label_style,
+                        ),
+                        Span::styled(stat_bar(rank - 8, 5), Style::default().fg(Color::Cyan)),
+                    ];
+                    if bonus > 0 {
+                        spans.push(Span::styled(
+                            format!("  +{bonus} = {total}"),
+                            Style::default().fg(Color::Green),
+                        ));
+                    }
+                    Line::from(spans)
+                }),
+        )
         .collect::<Vec<_>>();
+    let visible_rows = panels[0].height.saturating_sub(2) as usize;
+    let scroll_offset = if visible_rows == 0 {
+        0
+    } else {
+        c.stat_cursor.saturating_sub(visible_rows.saturating_sub(1))
+    };
     Paragraph::new(lines)
         .block(
             Block::bordered()
@@ -244,12 +279,116 @@ fn render_creation_proficiencies(app: &App, content: Rect, hint: Rect, buf: &mut
                 .border_type(BorderType::Rounded)
                 .style(dim_style()),
         )
-        .render(chunks[1], buf);
+        .scroll((scroll_offset as u16, 0))
+        .render(panels[0], buf);
+
+    let detail = if c.stat_cursor < MajorSkill::ALL.len() {
+        let skill = MajorSkill::ALL[c.stat_cursor];
+        let base = c.base_stats.by_skill(skill);
+        let bonus = bonuses.by_skill(skill);
+        major_creation_detail(skill, base, bonus)
+    } else {
+        let skill = MinorSkill::ALL[c.stat_cursor - MajorSkill::ALL.len()];
+        let rank = c.minor_proficiency_rank(skill);
+        let bonus = minor_bonuses.by_skill(skill);
+        minor_creation_detail(skill, rank, bonus)
+    };
+    Paragraph::new(detail)
+        .block(
+            Block::bordered()
+                .title(" Detail ")
+                .border_type(BorderType::Rounded)
+                .style(dim_style()),
+        )
+        .wrap(ratatui::widgets::Wrap { trim: true })
+        .render(panels[1], buf);
     hint_bar(
         "↑ ↓ navigate    ← → adjust    Enter continue    Esc back",
         hint,
         buf,
     );
+}
+
+fn major_creation_detail(skill: MajorSkill, base: i32, bonus: i32) -> Vec<Line<'static>> {
+    let total = base + bonus;
+    let affects = match skill {
+        MajorSkill::Charisma => "Affects weapon accuracy, crit pressure, and direct martial tempo.",
+        MajorSkill::Strength => {
+            "Affects physical damage, stamina-heavy actions, and melee scaling."
+        }
+        MajorSkill::Constitution => {
+            "Affects defence, max HP growth, and staying power in long fights."
+        }
+        MajorSkill::Dexterity => {
+            "Affects ranged pressure, initiative, dodge, and battlefield tempo."
+        }
+        MajorSkill::Wisdom => {
+            "Affects healing power, holy resilience, and support-oriented combat value."
+        }
+        MajorSkill::Intelligence => "Affects spell power, mana scaling, and arcane effectiveness.",
+    };
+    let mut lines = vec![
+        Line::from(Span::styled(
+            skill.full_name(),
+            Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(skill.description()),
+        Line::from(""),
+        Line::from(format!("Starting rank: {base}")),
+        Line::from(format!("Current total after race bonus: {total}")),
+        Line::from(""),
+        Line::from("What it affects:"),
+        Line::from(affects),
+    ];
+    if bonus > 0 {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            format!("Race bonus: +{bonus}"),
+            Style::default().fg(Color::Green),
+        )));
+    }
+    lines
+}
+
+fn minor_creation_detail(skill: MinorSkill, rank: i32, bonus: i32) -> Vec<Line<'static>> {
+    let total = rank + bonus;
+    let affects = match skill {
+        MinorSkill::Vitality => {
+            "Improves endurance-focused study and supports rough-travel survivability themes."
+        }
+        MinorSkill::Agility => "Supports movement, traversal, and finesse-oriented utility checks.",
+        MinorSkill::Alchemy => "Supports potion-making, reagents, and magical field preparation.",
+        MinorSkill::Larceny => "Supports locks, traps, sleight of hand, and opportunistic utility.",
+        MinorSkill::Runecraft => "Supports runes, wards, catalysts, and arcane utility work.",
+        MinorSkill::Crafting => "Supports practical tools, leatherwork, and fine assembly.",
+    };
+    let mut lines = vec![
+        Line::from(Span::styled(
+            skill.name(),
+            Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(skill.description()),
+        Line::from(""),
+        Line::from(format!("Starting rank: {rank}")),
+        Line::from(format!("Current total after race bonus: {total}")),
+        Line::from(format!(
+            "Governing proficiency: {}",
+            skill.governing_stat().full_name()
+        )),
+        Line::from(""),
+        Line::from("What it affects:"),
+        Line::from(affects),
+    ];
+    if bonus > 0 {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            format!("Race bonus: +{bonus}"),
+            Style::default().fg(Color::Green),
+        )));
+    }
+    lines
 }
 
 fn render_creation_gear(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) {
@@ -312,7 +451,23 @@ fn render_creation_gear(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) 
 
 fn render_creation_confirm(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) {
     let stats = app.creation.final_stats();
-    let lines = vec![
+    let mut proficiency_chunks = MajorSkill::ALL
+        .iter()
+        .map(|skill| format!("{} {}", skill.full_name(), stats.by_skill(*skill)))
+        .collect::<Vec<_>>();
+    proficiency_chunks.extend(MinorSkill::ALL.iter().map(|skill| {
+        format!(
+            "{} {}",
+            skill.name(),
+            app.creation.final_minor_proficiency_rank(*skill)
+        )
+    }));
+    let proficiency_lines = proficiency_chunks
+        .chunks(3)
+        .map(|chunk| Line::from(chunk.join("  ")))
+        .collect::<Vec<_>>();
+
+    let mut lines = vec![
         Line::from(vec![
             Span::styled("Name: ", dim_style()),
             Span::styled(&app.creation.name, Style::default().fg(GOLD)),
@@ -327,20 +482,13 @@ fn render_creation_confirm(app: &App, content: Rect, hint: Rect, buf: &mut Buffe
         ]),
         Line::from(""),
         Line::from(Span::styled("Starting Proficiencies", dim_style())),
-        Line::from(format!(
-            "ATK {}  STR {}  DEF {}",
-            stats.charisma, stats.strength, stats.constitution
-        )),
-        Line::from(format!(
-            "RNG {}  PRY {}  MAG {}",
-            stats.dexterity, stats.wisdom, stats.intelligence
-        )),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Gear: ", dim_style()),
-            Span::styled(app.creation.selected_gear().name(), normal_style()),
-        ]),
     ];
+    lines.extend(proficiency_lines);
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("Gear: ", dim_style()),
+        Span::styled(app.creation.selected_gear().name(), normal_style()),
+    ]));
     Paragraph::new(lines)
         .block(
             Block::bordered()
@@ -348,6 +496,7 @@ fn render_creation_confirm(app: &App, content: Rect, hint: Rect, buf: &mut Buffe
                 .border_type(BorderType::Rounded)
                 .style(Style::default().fg(GOLD)),
         )
+        .wrap(ratatui::widgets::Wrap { trim: true })
         .render(content, buf);
     hint_bar("Enter begin adventure    Esc back", hint, buf);
 }

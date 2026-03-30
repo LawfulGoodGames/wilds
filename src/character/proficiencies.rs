@@ -1,5 +1,5 @@
 pub const MAX_LEVEL: i32 = 20;
-pub const STAT_POINTS: i32 = 6;
+pub const STAT_POINTS: i32 = 16;
 pub const MAX_PROFICIENCY_LEVEL: u32 = 100;
 pub const MAX_COMBAT_PROFICIENCY_RANK: i32 = 99;
 
@@ -81,40 +81,18 @@ pub enum MinorSkill {
     Agility,
     Alchemy,
     Larceny,
-    Bowcraft,
-    Slayer,
-    Hunting,
-    Kindling,
     Runecraft,
-    Building,
-    Cooking,
-    Mining,
-    Smithing,
-    Fishing,
-    Farming,
     Crafting,
-    Woodcutting,
 }
 
 impl MinorSkill {
-    pub const ALL: [MinorSkill; 17] = [
+    pub const ALL: [MinorSkill; 6] = [
         MinorSkill::Vitality,
         MinorSkill::Agility,
         MinorSkill::Alchemy,
         MinorSkill::Larceny,
-        MinorSkill::Bowcraft,
-        MinorSkill::Slayer,
-        MinorSkill::Hunting,
-        MinorSkill::Mining,
-        MinorSkill::Smithing,
-        MinorSkill::Fishing,
-        MinorSkill::Cooking,
-        MinorSkill::Farming,
-        MinorSkill::Crafting,
-        MinorSkill::Kindling,
-        MinorSkill::Woodcutting,
         MinorSkill::Runecraft,
-        MinorSkill::Building,
+        MinorSkill::Crafting,
     ];
 
     pub fn name(self) -> &'static str {
@@ -123,19 +101,8 @@ impl MinorSkill {
             Self::Agility => "Agility",
             Self::Alchemy => "Alchemy",
             Self::Larceny => "Larceny",
-            Self::Bowcraft => "Bowcraft",
-            Self::Slayer => "Slayer",
-            Self::Hunting => "Hunting",
-            Self::Kindling => "Kindling",
             Self::Runecraft => "Runecraft",
-            Self::Building => "Building",
-            Self::Cooking => "Cooking",
-            Self::Mining => "Mining",
-            Self::Smithing => "Smithing",
-            Self::Fishing => "Fishing",
-            Self::Farming => "Farming",
             Self::Crafting => "Crafting",
-            Self::Woodcutting => "Woodcutting",
         }
     }
 
@@ -145,19 +112,8 @@ impl MinorSkill {
             Self::Agility => "Move cleanly through rough ground, locks, and ledges.",
             Self::Alchemy => "Brew compounds, tonics, and useful reagents from the wild.",
             Self::Larceny => "Lift valuables, work fine mechanisms, and exploit openings.",
-            Self::Bowcraft => "Shape shafts, string bows, and prepare ranged kit.",
-            Self::Slayer => "Study monsters and learn the habits of dangerous prey.",
-            Self::Hunting => "Track game, set snares, and read movement in the brush.",
-            Self::Kindling => "Raise campfires fast and keep them burning in bad weather.",
             Self::Runecraft => "Bind signs of power into runes, wards, and catalysts.",
-            Self::Building => "Raise shelters, repairs, and sturdy frontier fixtures.",
-            Self::Cooking => "Prepare field meals and restorative dishes.",
-            Self::Mining => "Recover ore, stone, and buried valuables.",
-            Self::Smithing => "Shape metal gear and understand armor quality.",
-            Self::Fishing => "Gather food and supplies from rivers and lakes.",
-            Self::Farming => "Raise staple goods and maintain camp stores.",
             Self::Crafting => "Assemble leatherwork, charms, and fine practical tools.",
-            Self::Woodcutting => "Harvest timber and break down useful hardwood.",
         }
     }
 
@@ -167,19 +123,8 @@ impl MinorSkill {
             Self::Agility => MajorSkill::Dexterity,
             Self::Alchemy => MajorSkill::Intelligence,
             Self::Larceny => MajorSkill::Dexterity,
-            Self::Bowcraft => MajorSkill::Dexterity,
-            Self::Slayer => MajorSkill::Charisma,
-            Self::Hunting => MajorSkill::Dexterity,
-            Self::Kindling => MajorSkill::Strength,
             Self::Runecraft => MajorSkill::Intelligence,
-            Self::Building => MajorSkill::Strength,
-            Self::Cooking => MajorSkill::Wisdom,
-            Self::Mining => MajorSkill::Strength,
-            Self::Smithing => MajorSkill::Strength,
-            Self::Fishing => MajorSkill::Wisdom,
-            Self::Farming => MajorSkill::Wisdom,
             Self::Crafting => MajorSkill::Intelligence,
-            Self::Woodcutting => MajorSkill::Strength,
         }
     }
 }
@@ -459,5 +404,10 @@ mod tests {
     fn study_plan_uses_skill_governing_stat() {
         let plan = study_plan(MinorSkill::Larceny, 0, &Stats::default());
         assert_eq!(plan.governing_stat, MajorSkill::Dexterity);
+    }
+
+    #[test]
+    fn proficiency_roster_is_twelve_total() {
+        assert_eq!(MajorSkill::ALL.len() + MinorSkill::ALL.len(), 12);
     }
 }

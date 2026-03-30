@@ -64,10 +64,11 @@ pub async fn save_character(
 
     for skill in MinorSkill::ALL {
         sqlx::query(
-            "INSERT INTO character_proficiencies (character_id, skill_name, xp) VALUES (?1, ?2, 0)",
+            "INSERT INTO character_proficiencies (character_id, skill_name, xp) VALUES (?1, ?2, ?3)",
         )
         .bind(id)
         .bind(skill.name())
+        .bind(creation.starting_proficiency_xp(skill))
         .execute(pool)
         .await?;
     }

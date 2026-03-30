@@ -194,7 +194,10 @@ impl App {
                 CreationStep::Class => {
                     cycle_cursor(&mut self.creation.class_cursor, -1, Class::ALL.len())
                 }
-                CreationStep::Stats => cycle_cursor(&mut self.creation.stat_cursor, -1, 6),
+                CreationStep::Stats => {
+                    let count = self.creation.proficiency_count();
+                    cycle_cursor(&mut self.creation.stat_cursor, -1, count);
+                }
                 CreationStep::Gear => {
                     cycle_cursor(&mut self.creation.gear_cursor, -1, GearPackage::ALL.len())
                 }
@@ -230,7 +233,10 @@ impl App {
                 CreationStep::Class => {
                     cycle_cursor(&mut self.creation.class_cursor, 1, Class::ALL.len())
                 }
-                CreationStep::Stats => cycle_cursor(&mut self.creation.stat_cursor, 1, 6),
+                CreationStep::Stats => {
+                    let count = self.creation.proficiency_count();
+                    cycle_cursor(&mut self.creation.stat_cursor, 1, count);
+                }
                 CreationStep::Gear => {
                     cycle_cursor(&mut self.creation.gear_cursor, 1, GearPackage::ALL.len())
                 }

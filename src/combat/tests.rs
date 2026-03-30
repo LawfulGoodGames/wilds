@@ -28,7 +28,7 @@ fn test_character(class: Class) -> SavedCharacter {
         },
         resources: ResourcePool::full(60, 30, 30),
         proficiencies: vec![ProficiencyData {
-            kind: MinorSkill::Cooking,
+            kind: MinorSkill::Vitality,
             xp: 0,
         }],
         known_abilities: vec![KnownAbility {
