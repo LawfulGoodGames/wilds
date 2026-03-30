@@ -27,13 +27,13 @@ pub async fn save_character(
     let max_hp = 88 + stats.modifier(crate::character::MajorSkill::Constitution) * 5;
     let max_mana = 20
         + mana_growth(class) * 2
-        + stats.modifier(crate::character::MajorSkill::Wisdom).max(0) * 3;
-    let max_stamina = 24
-        + stamina_growth(class) * 2
         + stats
-            .modifier(crate::character::MajorSkill::Constitution)
+            .modifier(crate::character::MajorSkill::Intelligence)
             .max(0)
             * 3;
+    let max_stamina = 24
+        + stamina_growth(class) * 2
+        + stats.modifier(crate::character::MajorSkill::Strength).max(0) * 3;
 
     let id = sqlx::query(
         "INSERT INTO characters

@@ -1,6 +1,7 @@
 pub const MAX_LEVEL: i32 = 20;
 pub const STAT_POINTS: i32 = 6;
 pub const MAX_PROFICIENCY_LEVEL: u32 = 100;
+pub const MAX_COMBAT_PROFICIENCY_RANK: i32 = 99;
 
 #[derive(Debug, Clone, Copy)]
 pub struct StudyPlan {
@@ -76,84 +77,109 @@ pub fn proficiency_progress_pct(xp: i32) -> f64 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MinorSkill {
+    Vitality,
+    Agility,
+    Alchemy,
+    Larceny,
+    Bowcraft,
+    Slayer,
+    Hunting,
+    Kindling,
+    Runecraft,
+    Building,
     Cooking,
-    Blacksmithing,
     Mining,
-    Woodcutting,
+    Smithing,
     Fishing,
-    Herbalism,
     Farming,
     Crafting,
-    Enchanting,
-    Thieving,
-    Prayer,
-    Runecrafting,
+    Woodcutting,
 }
 
 impl MinorSkill {
-    pub const ALL: [MinorSkill; 12] = [
-        MinorSkill::Cooking,
-        MinorSkill::Blacksmithing,
+    pub const ALL: [MinorSkill; 17] = [
+        MinorSkill::Vitality,
+        MinorSkill::Agility,
+        MinorSkill::Alchemy,
+        MinorSkill::Larceny,
+        MinorSkill::Bowcraft,
+        MinorSkill::Slayer,
+        MinorSkill::Hunting,
         MinorSkill::Mining,
-        MinorSkill::Woodcutting,
+        MinorSkill::Smithing,
         MinorSkill::Fishing,
-        MinorSkill::Herbalism,
+        MinorSkill::Cooking,
         MinorSkill::Farming,
         MinorSkill::Crafting,
-        MinorSkill::Enchanting,
-        MinorSkill::Thieving,
-        MinorSkill::Prayer,
-        MinorSkill::Runecrafting,
+        MinorSkill::Kindling,
+        MinorSkill::Woodcutting,
+        MinorSkill::Runecraft,
+        MinorSkill::Building,
     ];
 
     pub fn name(self) -> &'static str {
         match self {
+            Self::Vitality => "Vitality",
+            Self::Agility => "Agility",
+            Self::Alchemy => "Alchemy",
+            Self::Larceny => "Larceny",
+            Self::Bowcraft => "Bowcraft",
+            Self::Slayer => "Slayer",
+            Self::Hunting => "Hunting",
+            Self::Kindling => "Kindling",
+            Self::Runecraft => "Runecraft",
+            Self::Building => "Building",
             Self::Cooking => "Cooking",
-            Self::Blacksmithing => "Blacksmithing",
             Self::Mining => "Mining",
-            Self::Woodcutting => "Woodcutting",
+            Self::Smithing => "Smithing",
             Self::Fishing => "Fishing",
-            Self::Herbalism => "Herbalism",
             Self::Farming => "Farming",
             Self::Crafting => "Crafting",
-            Self::Enchanting => "Enchanting",
-            Self::Thieving => "Thieving",
-            Self::Prayer => "Prayer",
-            Self::Runecrafting => "Runecrafting",
+            Self::Woodcutting => "Woodcutting",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
+            Self::Vitality => "Condition the body to endure rough travel and attrition.",
+            Self::Agility => "Move cleanly through rough ground, locks, and ledges.",
+            Self::Alchemy => "Brew compounds, tonics, and useful reagents from the wild.",
+            Self::Larceny => "Lift valuables, work fine mechanisms, and exploit openings.",
+            Self::Bowcraft => "Shape shafts, string bows, and prepare ranged kit.",
+            Self::Slayer => "Study monsters and learn the habits of dangerous prey.",
+            Self::Hunting => "Track game, set snares, and read movement in the brush.",
+            Self::Kindling => "Raise campfires fast and keep them burning in bad weather.",
+            Self::Runecraft => "Bind signs of power into runes, wards, and catalysts.",
+            Self::Building => "Raise shelters, repairs, and sturdy frontier fixtures.",
             Self::Cooking => "Prepare field meals and restorative dishes.",
-            Self::Blacksmithing => "Shape metal gear and understand armor quality.",
             Self::Mining => "Recover ore, stone, and buried valuables.",
-            Self::Woodcutting => "Harvest timber and survive the deep wilds.",
+            Self::Smithing => "Shape metal gear and understand armor quality.",
             Self::Fishing => "Gather food and supplies from rivers and lakes.",
-            Self::Herbalism => "Identify herbs and distill useful tonics.",
             Self::Farming => "Raise staple goods and maintain camp stores.",
-            Self::Crafting => "Assemble leatherwork, talismans, and tools.",
-            Self::Enchanting => "Improve magical gear and stabilize relics.",
-            Self::Thieving => "Slip through danger and work with light hands.",
-            Self::Prayer => "Hold to rites of warding, healing, and resolve.",
-            Self::Runecrafting => "Channel raw magical script into useful power.",
+            Self::Crafting => "Assemble leatherwork, charms, and fine practical tools.",
+            Self::Woodcutting => "Harvest timber and break down useful hardwood.",
         }
     }
 
     pub fn governing_stat(self) -> MajorSkill {
         match self {
+            Self::Vitality => MajorSkill::Constitution,
+            Self::Agility => MajorSkill::Dexterity,
+            Self::Alchemy => MajorSkill::Intelligence,
+            Self::Larceny => MajorSkill::Dexterity,
+            Self::Bowcraft => MajorSkill::Dexterity,
+            Self::Slayer => MajorSkill::Charisma,
+            Self::Hunting => MajorSkill::Dexterity,
+            Self::Kindling => MajorSkill::Strength,
+            Self::Runecraft => MajorSkill::Intelligence,
+            Self::Building => MajorSkill::Strength,
             Self::Cooking => MajorSkill::Wisdom,
-            Self::Blacksmithing => MajorSkill::Strength,
-            Self::Mining => MajorSkill::Constitution,
-            Self::Woodcutting => MajorSkill::Strength,
+            Self::Mining => MajorSkill::Strength,
+            Self::Smithing => MajorSkill::Strength,
             Self::Fishing => MajorSkill::Wisdom,
-            Self::Herbalism => MajorSkill::Intelligence,
-            Self::Farming => MajorSkill::Constitution,
-            Self::Crafting => MajorSkill::Dexterity,
-            Self::Enchanting => MajorSkill::Intelligence,
-            Self::Thieving => MajorSkill::Dexterity,
-            Self::Prayer => MajorSkill::Wisdom,
-            Self::Runecrafting => MajorSkill::Intelligence,
+            Self::Farming => MajorSkill::Wisdom,
+            Self::Crafting => MajorSkill::Intelligence,
+            Self::Woodcutting => MajorSkill::Strength,
         }
     }
 }
@@ -207,6 +233,25 @@ pub fn study_plan(skill: MinorSkill, xp: i32, stats: &Stats) -> StudyPlan {
     }
 }
 
+pub fn major_study_plan(skill: MajorSkill, current_rank: i32, stats: &Stats) -> StudyPlan {
+    let aptitude = stats.modifier(skill);
+    let success_chance = (92 - current_rank * 4 + aptitude * 4).clamp(8, 92);
+    let hours = match current_rank {
+        ..=9 => 4,
+        10..=12 => 8,
+        13..=15 => 14,
+        16..=18 => 22,
+        _ => 32,
+    };
+    StudyPlan {
+        hours,
+        success_chance,
+        success_xp: 1,
+        failure_xp: 0,
+        governing_stat: skill,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MajorSkill {
     Strength,
@@ -219,33 +264,44 @@ pub enum MajorSkill {
 
 impl MajorSkill {
     pub const ALL: [MajorSkill; 6] = [
-        MajorSkill::Strength,
-        MajorSkill::Dexterity,
-        MajorSkill::Constitution,
-        MajorSkill::Intelligence,
-        MajorSkill::Wisdom,
         MajorSkill::Charisma,
+        MajorSkill::Strength,
+        MajorSkill::Constitution,
+        MajorSkill::Dexterity,
+        MajorSkill::Wisdom,
+        MajorSkill::Intelligence,
     ];
 
     pub fn short_name(self) -> &'static str {
         match self {
             Self::Strength => "STR",
-            Self::Dexterity => "DEX",
-            Self::Constitution => "CON",
-            Self::Intelligence => "INT",
-            Self::Wisdom => "WIS",
-            Self::Charisma => "CHA",
+            Self::Dexterity => "RNG",
+            Self::Constitution => "DEF",
+            Self::Intelligence => "MAG",
+            Self::Wisdom => "PRY",
+            Self::Charisma => "ATK",
         }
     }
 
     pub fn full_name(self) -> &'static str {
         match self {
             Self::Strength => "Strength",
-            Self::Dexterity => "Dexterity",
-            Self::Constitution => "Constitution",
-            Self::Intelligence => "Intelligence",
-            Self::Wisdom => "Wisdom",
-            Self::Charisma => "Charisma",
+            Self::Dexterity => "Ranged",
+            Self::Constitution => "Defence",
+            Self::Intelligence => "Magic",
+            Self::Wisdom => "Prayer",
+            Self::Charisma => "Attack",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Strength => "Raw force behind heavy blows, labor, and stamina-heavy exertion.",
+            Self::Dexterity => "Control at range that improves initiative, aim, and evasion.",
+            Self::Constitution => "Toughness that hardens your guard and lets you stay upright.",
+            Self::Intelligence => "Arcane command that improves spell power and mana craft.",
+            Self::Wisdom => "Sacred focus used for rites, healing, and holy resolve.",
+            Self::Charisma => "Martial timing and precision that sharpen direct attacks.",
         }
     }
 }
@@ -298,6 +354,31 @@ impl Stats {
         }
     }
 
+    pub fn add_skill(&mut self, skill: MajorSkill, delta: i32) {
+        match skill {
+            MajorSkill::Strength => {
+                self.strength = (self.strength + delta).clamp(1, MAX_COMBAT_PROFICIENCY_RANK)
+            }
+            MajorSkill::Dexterity => {
+                self.dexterity = (self.dexterity + delta).clamp(1, MAX_COMBAT_PROFICIENCY_RANK)
+            }
+            MajorSkill::Constitution => {
+                self.constitution =
+                    (self.constitution + delta).clamp(1, MAX_COMBAT_PROFICIENCY_RANK)
+            }
+            MajorSkill::Intelligence => {
+                self.intelligence =
+                    (self.intelligence + delta).clamp(1, MAX_COMBAT_PROFICIENCY_RANK)
+            }
+            MajorSkill::Wisdom => {
+                self.wisdom = (self.wisdom + delta).clamp(1, MAX_COMBAT_PROFICIENCY_RANK)
+            }
+            MajorSkill::Charisma => {
+                self.charisma = (self.charisma + delta).clamp(1, MAX_COMBAT_PROFICIENCY_RANK)
+            }
+        }
+    }
+
     pub fn add_bonuses(&self, other: &Stats) -> Stats {
         Stats {
             strength: self.strength + other.strength,
@@ -324,16 +405,6 @@ impl Stats {
         }
     }
 }
-
-pub const STAT_LABELS: [&str; 6] = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
-pub const STAT_FULL: [&str; 6] = [
-    "Strength",
-    "Dexterity",
-    "Constitution",
-    "Intelligence",
-    "Wisdom",
-    "Charisma",
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResistanceProfile {
@@ -463,14 +534,14 @@ impl Race {
 
     pub fn bonus_label(self) -> &'static str {
         match self {
-            Self::Human => "+1 to all stats",
-            Self::Elf => "+2 DEX, +1 INT",
-            Self::Dwarf => "+2 CON, +1 STR",
-            Self::Halfling => "+2 DEX, +1 CHA",
-            Self::Orc => "+2 STR, +1 CON",
-            Self::Tiefling => "+2 CHA, +1 INT",
-            Self::Gnome => "+2 INT, +1 WIS",
-            Self::Dragonborn => "+2 STR, +1 CHA",
+            Self::Human => "+1 to all proficiencies",
+            Self::Elf => "+2 Ranged, +1 Magic",
+            Self::Dwarf => "+2 Defence, +1 Strength",
+            Self::Halfling => "+2 Ranged, +1 Attack",
+            Self::Orc => "+2 Strength, +1 Defence",
+            Self::Tiefling => "+2 Attack, +1 Magic",
+            Self::Gnome => "+2 Magic, +1 Prayer",
+            Self::Dragonborn => "+2 Strength, +1 Attack",
         }
     }
 
@@ -577,12 +648,12 @@ impl Class {
 
     pub fn primary_stats(self) -> &'static str {
         match self {
-            Self::Warrior => "STR, CON",
-            Self::Ranger => "DEX, WIS",
-            Self::Mage => "INT, WIS",
-            Self::Rogue => "DEX, CHA",
-            Self::Paladin => "STR, CHA",
-            Self::Cleric => "WIS, CHA",
+            Self::Warrior => "Attack, Strength",
+            Self::Ranger => "Ranged, Defence",
+            Self::Mage => "Magic, Prayer",
+            Self::Rogue => "Attack, Ranged",
+            Self::Paladin => "Strength, Prayer",
+            Self::Cleric => "Prayer, Magic",
         }
     }
 
@@ -694,7 +765,7 @@ impl CreationStep {
             Self::Name => "Name",
             Self::Race => "Race",
             Self::Class => "Class",
-            Self::Stats => "Stats",
+            Self::Stats => "Proficiencies",
             Self::Gear => "Gear",
             Self::Confirm => "Confirm",
         }
@@ -731,17 +802,18 @@ impl SavedCharacter {
         crit_bonus: i32,
         initiative_bonus: i32,
     ) -> DerivedStats {
-        let dex = self.stats.modifier(MajorSkill::Dexterity);
-        let wis = self.stats.modifier(MajorSkill::Wisdom);
-        let int = self.stats.modifier(MajorSkill::Intelligence);
-        let cha = self.stats.modifier(MajorSkill::Charisma);
+        let ranged = self.stats.modifier(MajorSkill::Dexterity);
+        let prayer = self.stats.modifier(MajorSkill::Wisdom);
+        let magic = self.stats.modifier(MajorSkill::Intelligence);
+        let attack = self.stats.modifier(MajorSkill::Charisma);
+        let defence = self.stats.modifier(MajorSkill::Constitution);
         DerivedStats {
-            defense: 10 + equipment_armor + dex + wis.max(0) / 2,
-            initiative: dex + initiative_bonus + self.level / 3,
-            crit_chance: 5 + crit_bonus + dex.max(0) * 2 + cha.max(0),
-            dodge: dex * 2 + self.level / 2,
-            spell_power: int * 2 + spell_power_bonus + self.level,
-            healing_power: wis * 2 + cha.max(0) + self.level / 2,
+            defense: 10 + equipment_armor + defence + prayer.max(0) / 2,
+            initiative: ranged + initiative_bonus + self.level / 3,
+            crit_chance: 5 + crit_bonus + attack.max(0) * 2 + ranged.max(0),
+            dodge: ranged * 2 + self.level / 2,
+            spell_power: magic * 2 + spell_power_bonus + self.level,
+            healing_power: prayer * 2 + magic.max(0) + self.level / 2,
         }
     }
 
@@ -763,8 +835,8 @@ impl SavedCharacter {
         }
 
         let levels_gained = new_level - before_level;
-        let hp_gain = 8 * levels_gained
-            + self.stats.modifier(MajorSkill::Constitution).max(1) * levels_gained;
+        let hp_gain =
+            8 * levels_gained + self.stats.modifier(MajorSkill::Constitution).max(1) * levels_gained;
         let mana_gain = mana_growth(self.class) * levels_gained;
         let stamina_gain = stamina_growth(self.class) * levels_gained;
         self.resources.max_hp += hp_gain;
@@ -900,12 +972,13 @@ impl CharacterCreation {
     }
 
     pub fn adjust_stat(&mut self, dir: i32) {
-        let current = self.base_stats.get(self.stat_cursor);
+        let skill = MajorSkill::ALL[self.stat_cursor];
+        let current = self.base_stats.by_skill(skill);
         if dir > 0 && self.points_remaining > 0 && current < 13 {
-            self.base_stats.add(self.stat_cursor, 1);
+            self.base_stats.add_skill(skill, 1);
             self.points_remaining -= 1;
         } else if dir < 0 && current > 8 {
-            self.base_stats.add(self.stat_cursor, -1);
+            self.base_stats.add_skill(skill, -1);
             self.points_remaining += 1;
         }
     }
@@ -925,9 +998,9 @@ mod tests {
             wisdom: 12,
             charisma: 12,
         };
-        let novice = study_plan(MinorSkill::Runecrafting, 0, &stats);
+        let novice = study_plan(MinorSkill::Runecraft, 0, &stats);
         let veteran = study_plan(
-            MinorSkill::Runecrafting,
+            MinorSkill::Runecraft,
             proficiency_xp_for_level(25) as i32,
             &stats,
         );
@@ -937,7 +1010,7 @@ mod tests {
 
     #[test]
     fn study_plan_uses_skill_governing_stat() {
-        let plan = study_plan(MinorSkill::Thieving, 0, &Stats::default());
+        let plan = study_plan(MinorSkill::Larceny, 0, &Stats::default());
         assert_eq!(plan.governing_stat, MajorSkill::Dexterity);
     }
 }

@@ -1,4 +1,4 @@
-use crate::character::{Class, MajorSkill, ResourcePool, SavedCharacter};
+use crate::character::{Class, MajorSkill, ResistanceProfile, ResourcePool, SavedCharacter};
 use crate::inventory::{
     AttackOption, Equipment, InventoryItem, ItemEffect, ItemRarity, LootTableEntry, WeaponKind,
     find_def,
@@ -233,6 +233,7 @@ pub struct CombatantSnapshot {
     pub spell_power: i32,
     pub crit_chance: i32,
     pub dodge: i32,
+    pub resistances: ResistanceProfile,
     pub weapon_attacks: Vec<AttackOption>,
     pub ability_ids: Vec<String>,
     pub statuses: Vec<StatusEffect>,
@@ -365,11 +366,12 @@ impl CombatState {
             attack_bonus: eq_stats.attack_bonus
                 + character
                     .stats
-                    .modifier(MajorSkill::Strength)
+                    .modifier(MajorSkill::Charisma)
                     .max(character.stats.modifier(MajorSkill::Dexterity)),
             spell_power: derived.spell_power,
             crit_chance: derived.crit_chance,
             dodge: derived.dodge,
+            resistances: eq_stats.resistances,
             weapon_attacks: equipment.attack_options(),
             ability_ids: known_abilities,
             statuses: vec![],
@@ -398,6 +400,7 @@ impl CombatState {
                     spell_power: def.level + if def.role == EnemyRole::Caster { 4 } else { 0 },
                     crit_chance: 3 + def.level,
                     dodge: 2 + def.level,
+                    resistances: ResistanceProfile::default(),
                     weapon_attacks: vec![AttackOption {
                         name: "Attack",
                         accuracy_bonus: def.attack_bonus,
@@ -919,7 +922,7 @@ impl CombatState {
         let base_damage = rng.random_range(ability.damage_min..=ability.damage_max)
             + self.enemies[idx].spell_power / 3
             - self.player_guard_bonus();
-        let damage = base_damage.max(0);
+        let damage = self.apply_resistance(base_damage.max(0), self.player.resistances, ability.damage_type);
         self.last_roll_summary = Some(format!(
             "{} used {}: d20={} total={} vs DEF {}",
             name,
@@ -949,8 +952,12 @@ impl CombatState {
         let total = roll + self.enemies[idx].attack_bonus + attack.accuracy_bonus;
         let hit = roll != 1 && (roll == 20 || total >= target_defense);
         let damage = if hit {
-            (rng.random_range(attack.min_damage..=attack.max_damage) - self.player_guard_bonus())
-                .max(0)
+            self.apply_resistance(
+                (rng.random_range(attack.min_damage..=attack.max_damage) - self.player_guard_bonus())
+                    .max(0),
+                self.player.resistances,
+                DamageType::Physical,
+            )
         } else {
             0
         };
@@ -1028,12 +1035,15 @@ impl CombatState {
             defense,
             if crit { " CRIT" } else { "" }
         ));
+        let mut dealt_damage = damage;
         if hit {
             if let Some(target) = self.enemies.get_mut(self.selected_target) {
-                target.resources.hp = (target.resources.hp - damage).max(0);
-            }
-            if player_is_actor {
-                self.player_damage_dealt += damage;
+                dealt_damage =
+                    Self::apply_resistance_to_target(damage, target.resistances, damage_type);
+                target.resources.hp = (target.resources.hp - dealt_damage).max(0);
+                if player_is_actor {
+                    self.player_damage_dealt += dealt_damage;
+                }
             }
             if let Some((status, duration, potency)) = apply_status {
                 self.apply_status_to_enemy(self.selected_target, status, duration, potency, label);
@@ -1051,9 +1061,35 @@ impl CombatState {
             },
             target: target_name,
             hit,
-            amount: damage,
+            amount: if hit { dealt_damage } else { damage },
             detail: ability_name.unwrap_or(label).to_string(),
         });
+    }
+
+    fn apply_resistance(
+        &self,
+        amount: i32,
+        resistances: ResistanceProfile,
+        damage_type: DamageType,
+    ) -> i32 {
+        Self::apply_resistance_to_target(amount, resistances, damage_type)
+    }
+
+    fn apply_resistance_to_target(
+        amount: i32,
+        resistances: ResistanceProfile,
+        damage_type: DamageType,
+    ) -> i32 {
+        let resistance = match damage_type {
+            DamageType::Physical => resistances.physical,
+            DamageType::Fire => resistances.fire,
+            DamageType::Frost => resistances.frost,
+            DamageType::Lightning => resistances.lightning,
+            DamageType::Poison => resistances.poison,
+            DamageType::Holy => resistances.holy,
+            DamageType::Shadow => resistances.shadow,
+        };
+        (amount - resistance).max(0)
     }
 
     fn player_guard_bonus(&self) -> i32 {
@@ -1936,11 +1972,12 @@ pub fn encounter_def(id: &str) -> &'static EncounterDef {
 #[cfg(test)]
 mod tests {
     use super::{
-        ActionTab, CombatOutcome, CombatState, PlayerAction, StatusKind, TurnRef, ability_def,
-        encounter_def,
+        ActionTab, CombatOutcome, CombatState, DamageType, PlayerAction, StatusKind, TurnRef,
+        ability_def, encounter_def,
     };
     use crate::character::{
-        Class, KnownAbility, ProficiencyData, Race, ResourcePool, SavedCharacter, Stats,
+        Class, KnownAbility, MinorSkill, ProficiencyData, Race, ResourcePool, SavedCharacter,
+        Stats,
     };
     use crate::inventory::{Equipment, InventoryItem, gear_package_items};
 
@@ -1965,7 +2002,7 @@ mod tests {
             },
             resources: ResourcePool::full(60, 30, 30),
             proficiencies: vec![ProficiencyData {
-                kind: crate::character::MinorSkill::Cooking,
+                kind: MinorSkill::Cooking,
                 xp: 0,
             }],
             known_abilities: vec![KnownAbility {
@@ -2110,5 +2147,31 @@ mod tests {
 
         assert!(matches!(outcome, CombatOutcome::Ongoing));
         assert_eq!(combat.current_turn(), TurnRef::Player);
+    }
+
+    #[test]
+    fn equipment_resistances_reduce_incoming_damage() {
+        let character = test_character(Class::Warrior);
+        let inventory: Vec<InventoryItem> = vec![];
+        let unarmored =
+            CombatState::from_character_and_encounter(&character, &Equipment::default(), &inventory, "beast_hunt");
+        let armored =
+            CombatState::from_character_and_encounter(&character, &test_equipment(), &inventory, "beast_hunt");
+
+        assert!(armored.player.resistances.physical > 0);
+
+        let raw_damage = 10;
+        let unarmored_damage = CombatState::apply_resistance_to_target(
+            raw_damage,
+            unarmored.player.resistances,
+            DamageType::Physical,
+        );
+        let armored_damage = CombatState::apply_resistance_to_target(
+            raw_damage,
+            armored.player.resistances,
+            DamageType::Physical,
+        );
+
+        assert!(armored_damage < unarmored_damage);
     }
 }

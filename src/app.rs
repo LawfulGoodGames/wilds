@@ -1,7 +1,8 @@
 use crate::achievements::AchievementState;
 use crate::character::{
-    CharacterCreation, Class, CreationStep, GearPackage, MAX_PROFICIENCY_LEVEL, MinorSkill, Race,
-    SavedCharacter, level_progress_pct, study_plan, xp_to_next_level,
+    CharacterCreation, Class, CreationStep, GearPackage, MAX_COMBAT_PROFICIENCY_RANK,
+    MAX_PROFICIENCY_LEVEL, MajorSkill, MinorSkill, Race, SavedCharacter, level_progress_pct,
+    major_study_plan, study_plan, xp_to_next_level,
 };
 use crate::combat::{ActionTab, CombatOutcome, CombatState, PlayerAction, ability_def};
 use crate::db;
@@ -103,15 +104,13 @@ impl TownAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CharacterTab {
-    Attributes,
     Abilities,
     Proficiencies,
     Equipment,
 }
 
 impl CharacterTab {
-    pub const ALL: [CharacterTab; 4] = [
-        CharacterTab::Attributes,
+    pub const ALL: [CharacterTab; 3] = [
         CharacterTab::Abilities,
         CharacterTab::Proficiencies,
         CharacterTab::Equipment,
@@ -119,7 +118,6 @@ impl CharacterTab {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Attributes => "Attributes",
             Self::Abilities => "Abilities",
             Self::Proficiencies => "Proficiencies",
             Self::Equipment => "Equipment",
@@ -129,15 +127,30 @@ impl CharacterTab {
 
 const TRAINING_TICKS_PER_HOUR: u32 = 20;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProficiencyTarget {
+    Major(MajorSkill),
+    Minor(MinorSkill),
+}
+
+impl ProficiencyTarget {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Major(skill) => skill.full_name(),
+            Self::Minor(skill) => skill.name(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ActiveTraining {
-    pub skill: MinorSkill,
+    pub target: ProficiencyTarget,
     pub total_ticks: u32,
     pub elapsed_ticks: u32,
     pub hours: i32,
     pub success_chance: i32,
-    pub success_xp: i32,
-    pub failure_xp: i32,
+    pub success_gain: i32,
+    pub failure_gain: i32,
 }
 
 impl ActiveTraining {
@@ -180,7 +193,7 @@ pub struct App {
     pub dialogue_return: Screen,
     pub status_message: Option<String>,
     pub active_training: Option<ActiveTraining>,
-    pub recent_training_level_up: Option<(MinorSkill, u32)>,
+    pub recent_training_level_up: Option<(ProficiencyTarget, i32)>,
     pub achievements: AchievementState,
     pool: SqlitePool,
     pub events: EventHandler,
@@ -211,7 +224,7 @@ impl App {
             equipment_cursor: 0,
             achievement_cursor: 0,
             character_cursor: 0,
-            character_tab: CharacterTab::Attributes,
+            character_tab: CharacterTab::Proficiencies,
             dialogue_title: String::new(),
             dialogue_lines: vec![],
             dialogue_return: Screen::Town,
@@ -679,7 +692,7 @@ impl App {
     }
 
     fn open_character_sheet(&mut self) {
-        self.character_tab = CharacterTab::Attributes;
+        self.character_tab = CharacterTab::Proficiencies;
         self.character_cursor = 0;
         self.screen = Screen::CharacterSheet;
     }
@@ -1003,7 +1016,7 @@ impl App {
         if let Some(training) = &self.active_training {
             self.status_message = Some(format!(
                 "You are already studying {}. Wait for the current session to finish.",
-                training.skill.name()
+                training.target.name()
             ));
             return Ok(());
         }
@@ -1011,31 +1024,44 @@ impl App {
         let Some(ch) = self.active_character.as_mut() else {
             return Ok(());
         };
-        let skill_idx = self
-            .character_cursor
-            .min(ch.proficiencies.len().saturating_sub(1));
-        let Some(skill) = ch.proficiencies.get_mut(skill_idx) else {
-            return Ok(());
+        let (target, plan) = if self.character_cursor < MajorSkill::ALL.len() {
+            let skill = MajorSkill::ALL[self.character_cursor];
+            if ch.major_skill(skill) >= MAX_COMBAT_PROFICIENCY_RANK {
+                self.status_message = Some(format!("{} is already mastered.", skill.full_name()));
+                return Ok(());
+            }
+            (
+                ProficiencyTarget::Major(skill),
+                major_study_plan(skill, ch.major_skill(skill), &ch.stats),
+            )
+        } else {
+            let skill_idx = (self.character_cursor - MajorSkill::ALL.len())
+                .min(ch.proficiencies.len().saturating_sub(1));
+            let Some(skill) = ch.proficiencies.get_mut(skill_idx) else {
+                return Ok(());
+            };
+            if skill.level() >= MAX_PROFICIENCY_LEVEL {
+                self.status_message = Some(format!("{} is already mastered.", skill.kind.name()));
+                return Ok(());
+            }
+            (
+                ProficiencyTarget::Minor(skill.kind),
+                study_plan(skill.kind, skill.xp, &ch.stats),
+            )
         };
-        if skill.level() >= MAX_PROFICIENCY_LEVEL {
-            self.status_message = Some(format!("{} is already mastered.", skill.kind.name()));
-            return Ok(());
-        }
-
-        let plan = study_plan(skill.kind, skill.xp, &ch.stats);
         self.recent_training_level_up = None;
         self.active_training = Some(ActiveTraining {
-            skill: skill.kind,
+            target,
             total_ticks: (plan.hours.max(1) as u32) * TRAINING_TICKS_PER_HOUR,
             elapsed_ticks: 0,
             hours: plan.hours,
             success_chance: plan.success_chance,
-            success_xp: plan.success_xp,
-            failure_xp: plan.failure_xp,
+            success_gain: plan.success_xp,
+            failure_gain: plan.failure_xp,
         });
         self.status_message = Some(format!(
             "You begin studying {}. Progress will complete over time.",
-            skill.kind.name(),
+            target.name(),
         ));
         Ok(())
     }
@@ -1046,32 +1072,52 @@ impl App {
         };
         let roll = rand::rng().random_range(1..=100);
         let success = roll <= training.success_chance;
-        let xp_gain = if success {
-            training.success_xp
+        let gain = if success {
+            training.success_gain
         } else {
-            training.failure_xp
+            training.failure_gain
         };
-        let Some((character_id, skill_kind, before_level, after_level, new_xp)) = ({
+        let Some((character_id, target, before_level, after_level, maybe_xp)) = ({
             let Some(ch) = self.active_character.as_mut() else {
                 return Ok(());
             };
-            let Some(skill) = ch
-                .proficiencies
-                .iter_mut()
-                .find(|skill| skill.kind == training.skill)
-            else {
-                return Ok(());
-            };
-            let before_level = skill.level();
-            skill.xp += xp_gain;
-            let after_level = skill.level();
-            Some((ch.id, skill.kind, before_level, after_level, skill.xp))
+            match training.target {
+                ProficiencyTarget::Major(skill) => {
+                    let before = ch.major_skill(skill);
+                    ch.stats.add_skill(skill, gain);
+                    let after = ch.major_skill(skill);
+                    Some((ch.id, ProficiencyTarget::Major(skill), before, after, None))
+                }
+                ProficiencyTarget::Minor(skill_kind) => {
+                    let Some(skill) = ch
+                        .proficiencies
+                        .iter_mut()
+                        .find(|skill| skill.kind == skill_kind)
+                    else {
+                        return Ok(());
+                    };
+                    let before = skill.level() as i32;
+                    skill.xp += gain;
+                    let after = skill.level() as i32;
+                    Some((
+                        ch.id,
+                        ProficiencyTarget::Minor(skill.kind),
+                        before,
+                        after,
+                        Some(skill.xp),
+                    ))
+                }
+            }
         }) else {
             return Ok(());
         };
         self.world_state.advance_time(training.hours);
 
-        db::save_proficiency_xp(&self.pool, character_id, skill_kind, new_xp).await?;
+        if let (ProficiencyTarget::Minor(skill_kind), Some(new_xp)) = (target, maybe_xp) {
+            db::save_proficiency_xp(&self.pool, character_id, skill_kind, new_xp).await?;
+        } else if let Some(ch) = &self.active_character {
+            db::save_character_state(&self.pool, ch).await?;
+        }
         db::save_world_state(&self.pool, character_id, &self.world_state).await?;
         let mut unlocked = self
             .achievement_increment(character_id, "study_sessions", 1)
@@ -1090,15 +1136,15 @@ impl App {
 
         let result = if success { "Success" } else { "Setback" };
         let mut message = format!(
-            "{result}: {} training finished after {}h. Roll {} vs {}%, gained {} XP.",
-            skill_kind.name(),
+            "{result}: {} training finished after {}h. Roll {} vs {}%, gained {} progress.",
+            target.name(),
             training.hours,
             roll,
             training.success_chance,
-            xp_gain
+            gain
         );
         if after_level > before_level {
-            self.recent_training_level_up = Some((skill_kind, after_level));
+            self.recent_training_level_up = Some((target, after_level));
             message.push_str(&format!(" Rank up to {}.", after_level));
         }
         if let Some(name) = unlocked.last() {
@@ -1275,7 +1321,7 @@ impl App {
                         ];
                         if level_up.levels_gained > 0 {
                             lines.push(format!(
-                                "Level up! Now level {}. +{} HP, +{} Mana, +{} Stamina, +{} stat points.",
+                                "Level up! Now level {}. +{} HP, +{} Mana, +{} Stamina, +{} proficiency points.",
                                 character.level,
                                 level_up.hp_gain,
                                 level_up.mana_gain,
@@ -1558,10 +1604,10 @@ impl App {
         let Some(ch) = &self.active_character else {
             return Ok(unlocked);
         };
-        let best_prof = ch
-            .proficiencies
+        let best_prof = MajorSkill::ALL
             .iter()
-            .map(|skill| skill.level() as i32)
+            .map(|skill| ch.major_skill(*skill))
+            .chain(ch.proficiencies.iter().map(|skill| skill.level() as i32))
             .max()
             .unwrap_or(1);
         let level = ch.level;

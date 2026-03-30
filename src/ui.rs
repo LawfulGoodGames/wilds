@@ -10,7 +10,9 @@ use crate::achievements::achievement_defs;
 use crate::app::{
     App, CharacterTab, MenuItem, Screen, TownAction, active_level_progress, active_xp_to_next,
 };
-use crate::character::{Class, CreationStep, GearPackage, Race, STAT_FULL, STAT_LABELS};
+use crate::character::{
+    Class, CreationStep, GearPackage, MajorSkill, Race,
+};
 use crate::combat::{ActionTab, TurnRef, ability_def, encounter_def};
 use crate::inventory::{EquipSlot, find_def, gear_package_items};
 use crate::world::{AreaId, QuestId, VendorId, area_def, quest_def, vendor_def};
@@ -126,7 +128,7 @@ fn render_character_creation(app: &App, area: Rect, buf: &mut Buffer) {
         CreationStep::Name => render_creation_name(app, chunks[2], chunks[3], buf),
         CreationStep::Race => render_creation_race(app, chunks[2], chunks[3], buf),
         CreationStep::Class => render_creation_class(app, chunks[2], chunks[3], buf),
-        CreationStep::Stats => render_creation_stats(app, chunks[2], chunks[3], buf),
+        CreationStep::Stats => render_creation_proficiencies(app, chunks[2], chunks[3], buf),
         CreationStep::Gear => render_creation_gear(app, chunks[2], chunks[3], buf),
         CreationStep::Confirm => render_creation_confirm(app, chunks[2], chunks[3], buf),
     }
@@ -266,7 +268,7 @@ fn render_creation_class(app: &App, content: Rect, hint: Rect, buf: &mut Buffer)
         Line::from(Span::styled(class.description(), normal_style())),
         Line::from(""),
         Line::from(vec![
-            Span::styled("Primary stats: ", dim_style()),
+            Span::styled("Class leaning: ", dim_style()),
             Span::styled(class.primary_stats(), Style::default().fg(Color::Cyan)),
         ]),
     ];
@@ -282,7 +284,7 @@ fn render_creation_class(app: &App, content: Rect, hint: Rect, buf: &mut Buffer)
     hint_bar("↑ ↓ navigate    Enter confirm    Esc back", hint, buf);
 }
 
-fn render_creation_stats(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) {
+fn render_creation_proficiencies(app: &App, content: Rect, hint: Rect, buf: &mut Buffer) {
     let c = &app.creation;
     let bonuses = c.selected_race().stat_bonuses();
     let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(content);
@@ -292,15 +294,16 @@ fn render_creation_stats(app: &App, content: Rect, hint: Rect, buf: &mut Buffer)
             c.points_remaining.to_string(),
             Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
         ),
-        Span::styled("  (start at 8, cap 13)", dim_style()),
+        Span::styled("  (all proficiencies start at 8, cap 13)", dim_style()),
     ]))
     .alignment(Alignment::Center)
     .render(chunks[0], buf);
 
     let lines = (0..6)
         .map(|idx| {
-            let base = c.base_stats.get(idx);
-            let bonus = bonuses.get(idx);
+            let skill = MajorSkill::ALL[idx];
+            let base = c.base_stats.by_skill(skill);
+            let bonus = bonuses.by_skill(skill);
             let total = base + bonus;
             let label_style = if idx == c.stat_cursor {
                 selected_style()
@@ -311,7 +314,9 @@ fn render_creation_stats(app: &App, content: Rect, hint: Rect, buf: &mut Buffer)
                 Span::styled(
                     format!(
                         "  {:<3} {:<13} {:>2}",
-                        STAT_LABELS[idx], STAT_FULL[idx], base
+                        skill.short_name(),
+                        skill.full_name(),
+                        base
                     ),
                     label_style,
                 ),
@@ -329,7 +334,7 @@ fn render_creation_stats(app: &App, content: Rect, hint: Rect, buf: &mut Buffer)
     Paragraph::new(lines)
         .block(
             Block::bordered()
-                .title(" Allocate Stats ")
+                .title(" Proficiencies ")
                 .border_type(BorderType::Rounded)
                 .style(dim_style()),
         )
@@ -415,13 +420,14 @@ fn render_creation_confirm(app: &App, content: Rect, hint: Rect, buf: &mut Buffe
             Span::styled(app.creation.selected_class().name(), normal_style()),
         ]),
         Line::from(""),
+        Line::from(Span::styled("Starting Proficiencies", dim_style())),
         Line::from(format!(
-            "STR {}  DEX {}  CON {}",
-            stats.strength, stats.dexterity, stats.constitution
+            "ATK {}  STR {}  DEF {}",
+            stats.charisma, stats.strength, stats.constitution
         )),
         Line::from(format!(
-            "INT {}  WIS {}  CHA {}",
-            stats.intelligence, stats.wisdom, stats.charisma
+            "RNG {}  PRY {}  MAG {}",
+            stats.dexterity, stats.wisdom, stats.intelligence
         )),
         Line::from(""),
         Line::from(vec![
@@ -789,39 +795,6 @@ fn render_character_sheet(app: &App, area: Rect, buf: &mut Buffer) {
         .render(chunks[1], buf);
 
     match app.character_tab {
-        CharacterTab::Attributes => {
-            let lines = vec![
-                Line::from(format!(
-                    "Level {}  XP {}  Next {}",
-                    ch.level,
-                    ch.xp,
-                    active_xp_to_next(app)
-                )),
-                Line::from(format!("Unspent stat points: {}", ch.unspent_stat_points)),
-                Line::from(""),
-                Line::from(format!(
-                    "STR {:>2}  DEX {:>2}  CON {:>2}",
-                    ch.stats.strength, ch.stats.dexterity, ch.stats.constitution
-                )),
-                Line::from(format!(
-                    "INT {:>2}  WIS {:>2}  CHA {:>2}",
-                    ch.stats.intelligence, ch.stats.wisdom, ch.stats.charisma
-                )),
-                Line::from(""),
-                Line::from(Span::styled(
-                    progress_bar(active_level_progress(app), 32),
-                    Style::default().fg(Color::Cyan),
-                )),
-            ];
-            Paragraph::new(lines)
-                .block(
-                    Block::bordered()
-                        .title(" Attributes ")
-                        .border_type(BorderType::Rounded)
-                        .style(dim_style()),
-                )
-                .render(chunks[2], buf);
-        }
         CharacterTab::Abilities => {
             let lines = ch
                 .known_abilities
@@ -860,25 +833,40 @@ fn render_character_sheet(app: &App, area: Rect, buf: &mut Buffer) {
                 .render(chunks[2], buf);
         }
         CharacterTab::Proficiencies => {
-            let lines = ch
-                .proficiencies
+            let total_entries = MajorSkill::ALL.len() + ch.proficiencies.len();
+            let lines = MajorSkill::ALL
                 .iter()
                 .enumerate()
                 .map(|(idx, skill)| {
-                    let style = if idx
-                        == app
-                            .character_cursor
-                            .min(ch.proficiencies.len().saturating_sub(1))
+                    let style = if idx == app.character_cursor.min(total_entries.saturating_sub(1))
                     {
                         selected_style()
                     } else {
                         normal_style()
                     };
                     Line::from(Span::styled(
-                        format!("{}  Rank {:>2}", skill.kind.name(), skill.level()),
+                        format!(
+                            "{}  Rank {:>2}  Mod {:+}",
+                            skill.full_name(),
+                            ch.major_skill(*skill),
+                            ch.stats.modifier(*skill)
+                        ),
                         style,
                     ))
                 })
+                .chain(ch.proficiencies.iter().enumerate().map(|(idx, skill)| {
+                    let list_idx = MajorSkill::ALL.len() + idx;
+                    let style =
+                        if list_idx == app.character_cursor.min(total_entries.saturating_sub(1)) {
+                            selected_style()
+                        } else {
+                            normal_style()
+                        };
+                    Line::from(Span::styled(
+                        format!("{}  Rank {:>2}", skill.kind.name(), skill.level()),
+                        style,
+                    ))
+                }))
                 .collect::<Vec<_>>();
             let panels =
                 Layout::horizontal([Constraint::Percentage(42), Constraint::Percentage(58)])
@@ -886,98 +874,181 @@ fn render_character_sheet(app: &App, area: Rect, buf: &mut Buffer) {
             Paragraph::new(lines)
                 .block(
                     Block::bordered()
-                        .title(" Proficiencies ")
+                        .title(" All Proficiencies ")
                         .border_type(BorderType::Rounded)
                         .style(dim_style()),
                 )
                 .render(panels[0], buf);
 
-            let detail = ch
-                .proficiencies
-                .get(
-                    app.character_cursor
-                        .min(ch.proficiencies.len().saturating_sub(1)),
-                )
-                .map(|skill| {
-                    let plan = crate::character::study_plan(skill.kind, skill.xp, &ch.stats);
-                    let mut lines = vec![
-                        Line::from(Span::styled(
-                            skill.kind.name(),
-                            Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
-                        )),
-                        Line::from(""),
-                        Line::from(skill.kind.description()),
-                        Line::from(""),
-                        Line::from(format!(
-                            "Rank {}  XP to next {}",
-                            skill.level(),
-                            skill.xp_to_next()
-                        )),
-                        Line::from(Span::styled(
-                            progress_bar(skill.progress(), 28),
-                            Style::default().fg(Color::Cyan),
-                        )),
-                        Line::from(""),
-                        Line::from(format!("Study time: {}h", plan.hours)),
-                        Line::from(format!("Success chance: {}%", plan.success_chance)),
-                        Line::from(format!("On success: +{} XP", plan.success_xp)),
-                        Line::from(format!("On setback: +{} XP", plan.failure_xp)),
-                        Line::from(format!(
-                            "Governing stat: {}",
-                            plan.governing_stat.full_name()
-                        )),
-                    ];
-                    if let Some(training) = &app.active_training {
-                        if training.skill == skill.kind {
-                            lines.push(Line::from(""));
-                            lines.push(Line::from(Span::styled(
-                                "Training in progress",
-                                Style::default()
-                                    .fg(Color::Green)
-                                    .add_modifier(Modifier::BOLD),
-                            )));
-                            lines.push(Line::from(Span::styled(
-                                progress_bar(training.progress(), 28),
-                                Style::default().fg(Color::Green),
-                            )));
-                            lines.push(Line::from(format!(
-                                "Focus remaining: {:.1}s",
-                                (training.total_ticks.saturating_sub(training.elapsed_ticks))
-                                    as f64
-                                    / 30.0
-                            )));
-                            lines.push(Line::from(format!(
-                                "Study hours: {}/{}",
-                                ((training.progress() * training.hours as f64).floor() as i32)
-                                    .min(training.hours),
-                                training.hours
-                            )));
-                        }
+            let selected_idx = app.character_cursor.min(total_entries.saturating_sub(1));
+            let detail = if selected_idx < MajorSkill::ALL.len() {
+                let major = MajorSkill::ALL[selected_idx];
+                let score = ch.major_skill(major);
+                let modifier = ch.stats.modifier(major);
+                let plan = crate::character::major_study_plan(major, score, &ch.stats);
+                let mut lines = vec![
+                    Line::from(Span::styled(
+                        major.full_name(),
+                        Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+                    )),
+                    Line::from(""),
+                    Line::from(major.description()),
+                    Line::from(""),
+                    Line::from(format!("Rank {}  Modifier {:+}", score, modifier)),
+                    Line::from(""),
+                    Line::from(format!(
+                        "Level {}  XP {}  Next {}",
+                        ch.level,
+                        ch.xp,
+                        active_xp_to_next(app)
+                    )),
+                    Line::from(format!(
+                        "Unspent proficiency points: {}",
+                        ch.unspent_stat_points
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        progress_bar(active_level_progress(app), 28),
+                        Style::default().fg(Color::Cyan),
+                    )),
+                    Line::from(""),
+                    Line::from(format!("Study time: {}h", plan.hours)),
+                    Line::from(format!("Success chance: {}%", plan.success_chance)),
+                    Line::from(format!("On success: +{} rank", plan.success_xp)),
+                    Line::from(format!("On setback: +{} rank", plan.failure_xp)),
+                ];
+                if let Some(training) = &app.active_training {
+                    if training.target == crate::app::ProficiencyTarget::Major(major) {
+                        lines.push(Line::from(""));
+                        lines.push(Line::from(Span::styled(
+                            "Training in progress",
+                            Style::default()
+                                .fg(Color::Green)
+                                .add_modifier(Modifier::BOLD),
+                        )));
+                        lines.push(Line::from(Span::styled(
+                            progress_bar(training.progress(), 28),
+                            Style::default().fg(Color::Green),
+                        )));
+                        lines.push(Line::from(format!(
+                            "Focus remaining: {:.1}s",
+                            (training.total_ticks.saturating_sub(training.elapsed_ticks)) as f64
+                                / 30.0
+                        )));
+                        lines.push(Line::from(format!(
+                            "Study hours: {}/{}",
+                            ((training.progress() * training.hours as f64).floor() as i32)
+                                .min(training.hours),
+                            training.hours
+                        )));
                     }
-                    if let Some((trained_skill, rank)) = app.recent_training_level_up {
-                        if trained_skill == skill.kind {
-                            lines.push(Line::from(""));
-                            lines.push(Line::from(Span::styled(
-                                format!("LEVEL UP! {} reached Rank {}", skill.kind.name(), rank),
-                                Style::default()
-                                    .fg(Color::Yellow)
-                                    .add_modifier(Modifier::BOLD),
-                            )));
-                        }
+                }
+                if let Some((trained_skill, rank)) = app.recent_training_level_up {
+                    if trained_skill == crate::app::ProficiencyTarget::Major(major) {
+                        lines.push(Line::from(""));
+                        lines.push(Line::from(Span::styled(
+                            format!("LEVEL UP! {} reached Rank {}", major.full_name(), rank),
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        )));
                     }
-                    lines.push(Line::from(""));
-                    lines.push(Line::from(
-                        app.status_message
-                            .as_deref()
-                            .unwrap_or("Choose a proficiency and train to improve it."),
-                    ));
-                    lines
-                })
-                .unwrap_or_else(|| vec![Line::from("No proficiency selected.")]);
+                }
+                lines.push(Line::from(""));
+                lines.push(Line::from(
+                    app.status_message
+                        .as_deref()
+                        .unwrap_or("Choose a proficiency and train to improve it."),
+                ));
+                lines
+            } else {
+                ch.proficiencies
+                    .get(selected_idx - MajorSkill::ALL.len())
+                    .map(|skill| {
+                        let plan = crate::character::study_plan(skill.kind, skill.xp, &ch.stats);
+                        let mut lines = vec![
+                            Line::from(Span::styled(
+                                skill.kind.name(),
+                                Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+                            )),
+                            Line::from(""),
+                            Line::from(skill.kind.description()),
+                            Line::from(""),
+                            Line::from(format!(
+                                "Rank {}  XP to next {}",
+                                skill.level(),
+                                skill.xp_to_next()
+                            )),
+                            Line::from(Span::styled(
+                                progress_bar(skill.progress(), 28),
+                                Style::default().fg(Color::Cyan),
+                            )),
+                            Line::from(""),
+                            Line::from(format!("Study time: {}h", plan.hours)),
+                            Line::from(format!("Success chance: {}%", plan.success_chance)),
+                            Line::from(format!("On success: +{} XP", plan.success_xp)),
+                            Line::from(format!("On setback: +{} XP", plan.failure_xp)),
+                            Line::from(format!(
+                                "Governing stat: {}",
+                                plan.governing_stat.full_name()
+                            )),
+                        ];
+                        if let Some(training) = &app.active_training {
+                            if training.target == crate::app::ProficiencyTarget::Minor(skill.kind) {
+                                lines.push(Line::from(""));
+                                lines.push(Line::from(Span::styled(
+                                    "Training in progress",
+                                    Style::default()
+                                        .fg(Color::Green)
+                                        .add_modifier(Modifier::BOLD),
+                                )));
+                                lines.push(Line::from(Span::styled(
+                                    progress_bar(training.progress(), 28),
+                                    Style::default().fg(Color::Green),
+                                )));
+                                lines.push(Line::from(format!(
+                                    "Focus remaining: {:.1}s",
+                                    (training.total_ticks.saturating_sub(training.elapsed_ticks))
+                                        as f64
+                                        / 30.0
+                                )));
+                                lines.push(Line::from(format!(
+                                    "Study hours: {}/{}",
+                                    ((training.progress() * training.hours as f64).floor() as i32)
+                                        .min(training.hours),
+                                    training.hours
+                                )));
+                            }
+                        }
+                        if let Some((trained_skill, rank)) = app.recent_training_level_up {
+                            if trained_skill == crate::app::ProficiencyTarget::Minor(skill.kind) {
+                                lines.push(Line::from(""));
+                                lines.push(Line::from(Span::styled(
+                                    format!(
+                                        "LEVEL UP! {} reached Rank {}",
+                                        skill.kind.name(),
+                                        rank
+                                    ),
+                                    Style::default()
+                                        .fg(Color::Yellow)
+                                        .add_modifier(Modifier::BOLD),
+                                )));
+                            }
+                        }
+                        lines.push(Line::from(""));
+                        lines.push(Line::from(
+                            app.status_message
+                                .as_deref()
+                                .unwrap_or("Choose a proficiency and train to improve it."),
+                        ));
+                        lines
+                    })
+                    .unwrap_or_else(|| vec![Line::from("No proficiency selected.")])
+            };
             Paragraph::new(detail)
                 .block(
                     Block::bordered()
-                        .title(" Study ")
+                        .title(" Proficiency Detail ")
                         .border_type(BorderType::Rounded)
                         .style(dim_style()),
                 )
@@ -1012,7 +1083,7 @@ fn render_character_sheet(app: &App, area: Rect, buf: &mut Buffer) {
         if app.active_training.is_some() {
             "← → / Tab change tab    ↑ ↓ browse    Training in progress...    Esc return"
         } else {
-            "← → / Tab change tab    ↑ ↓ browse    Enter or t train    Esc return"
+            "← → / Tab change tab    ↑ ↓ browse    Enter or t train proficiency    Esc return"
         }
     } else {
         "← → / Tab change tab    ↑ ↓ browse    Esc return"
@@ -1615,6 +1686,15 @@ fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
         Line::from(format!(
             "Defense {}  Initiative {}",
             combat.player.defense, combat.player.initiative
+        )),
+        Line::from(format!(
+            "Resist P:{} F:{} I:{} L:{} H:{} S:{}",
+            combat.player.resistances.physical,
+            combat.player.resistances.fire,
+            combat.player.resistances.frost,
+            combat.player.resistances.lightning,
+            combat.player.resistances.holy,
+            combat.player.resistances.shadow
         )),
         Line::from(format!(
             "Turn: {}",
