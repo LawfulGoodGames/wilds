@@ -33,7 +33,10 @@ pub async fn save_character(
             * 3;
     let max_stamina = 24
         + stamina_growth(class) * 2
-        + stats.modifier(crate::character::MajorSkill::Strength).max(0) * 3;
+        + stats
+            .modifier(crate::character::MajorSkill::Strength)
+            .max(0)
+            * 3;
 
     let id = sqlx::query(
         "INSERT INTO characters

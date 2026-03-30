@@ -922,7 +922,11 @@ impl CombatState {
         let base_damage = rng.random_range(ability.damage_min..=ability.damage_max)
             + self.enemies[idx].spell_power / 3
             - self.player_guard_bonus();
-        let damage = self.apply_resistance(base_damage.max(0), self.player.resistances, ability.damage_type);
+        let damage = self.apply_resistance(
+            base_damage.max(0),
+            self.player.resistances,
+            ability.damage_type,
+        );
         self.last_roll_summary = Some(format!(
             "{} used {}: d20={} total={} vs DEF {}",
             name,
@@ -953,8 +957,9 @@ impl CombatState {
         let hit = roll != 1 && (roll == 20 || total >= target_defense);
         let damage = if hit {
             self.apply_resistance(
-                (rng.random_range(attack.min_damage..=attack.max_damage) - self.player_guard_bonus())
-                    .max(0),
+                (rng.random_range(attack.min_damage..=attack.max_damage)
+                    - self.player_guard_bonus())
+                .max(0),
                 self.player.resistances,
                 DamageType::Physical,
             )
@@ -1976,8 +1981,7 @@ mod tests {
         ability_def, encounter_def,
     };
     use crate::character::{
-        Class, KnownAbility, MinorSkill, ProficiencyData, Race, ResourcePool, SavedCharacter,
-        Stats,
+        Class, KnownAbility, MinorSkill, ProficiencyData, Race, ResourcePool, SavedCharacter, Stats,
     };
     use crate::inventory::{Equipment, InventoryItem, gear_package_items};
 
@@ -2153,10 +2157,18 @@ mod tests {
     fn equipment_resistances_reduce_incoming_damage() {
         let character = test_character(Class::Warrior);
         let inventory: Vec<InventoryItem> = vec![];
-        let unarmored =
-            CombatState::from_character_and_encounter(&character, &Equipment::default(), &inventory, "beast_hunt");
-        let armored =
-            CombatState::from_character_and_encounter(&character, &test_equipment(), &inventory, "beast_hunt");
+        let unarmored = CombatState::from_character_and_encounter(
+            &character,
+            &Equipment::default(),
+            &inventory,
+            "beast_hunt",
+        );
+        let armored = CombatState::from_character_and_encounter(
+            &character,
+            &test_equipment(),
+            &inventory,
+            "beast_hunt",
+        );
 
         assert!(armored.player.resistances.physical > 0);
 

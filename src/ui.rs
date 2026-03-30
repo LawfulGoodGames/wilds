@@ -10,9 +10,7 @@ use crate::achievements::achievement_defs;
 use crate::app::{
     App, CharacterTab, MenuItem, Screen, TownAction, active_level_progress, active_xp_to_next,
 };
-use crate::character::{
-    Class, CreationStep, GearPackage, MajorSkill, Race,
-};
+use crate::character::{Class, CreationStep, GearPackage, MajorSkill, Race};
 use crate::combat::{ActionTab, TurnRef, ability_def, encounter_def};
 use crate::inventory::{EquipSlot, find_def, gear_package_items};
 use crate::world::{AreaId, QuestId, VendorId, area_def, quest_def, vendor_def};

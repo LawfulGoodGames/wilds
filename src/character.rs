@@ -835,8 +835,8 @@ impl SavedCharacter {
         }
 
         let levels_gained = new_level - before_level;
-        let hp_gain =
-            8 * levels_gained + self.stats.modifier(MajorSkill::Constitution).max(1) * levels_gained;
+        let hp_gain = 8 * levels_gained
+            + self.stats.modifier(MajorSkill::Constitution).max(1) * levels_gained;
         let mana_gain = mana_growth(self.class) * levels_gained;
         let stamina_gain = stamina_growth(self.class) * levels_gained;
         self.resources.max_hp += hp_gain;
