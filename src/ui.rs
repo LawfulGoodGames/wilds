@@ -1323,6 +1323,12 @@ fn render_achievements(app: &App, area: Rect, buf: &mut Buffer) {
         .split(chunks[1]);
     let defs = achievement_defs();
     let selected_idx = app.achievement_cursor.min(defs.len().saturating_sub(1));
+    let visible_rows = panels[0].height.saturating_sub(2) as usize;
+    let scroll_offset = if visible_rows == 0 {
+        0
+    } else {
+        selected_idx.saturating_sub(visible_rows.saturating_sub(1))
+    };
     let list = defs
         .iter()
         .enumerate()
@@ -1349,6 +1355,7 @@ fn render_achievements(app: &App, area: Rect, buf: &mut Buffer) {
                 .border_type(BorderType::Rounded)
                 .style(dim_style()),
         )
+        .scroll((scroll_offset as u16, 0))
         .render(panels[0], buf);
 
     let detail = defs
