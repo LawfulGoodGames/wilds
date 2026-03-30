@@ -1,10 +1,13 @@
 use crate::character::{
-    ability_unlock_level, class_progression, mana_growth, stamina_growth, CharacterCreation, KnownAbility,
-    ProficiencyData, Race, ResourcePool, SavedCharacter, Stats, Class, MinorSkill,
+    CharacterCreation, Class, KnownAbility, MinorSkill, ProficiencyData, Race, ResourcePool,
+    SavedCharacter, Stats, ability_unlock_level, class_progression, mana_growth, stamina_growth,
 };
-use crate::inventory::{gear_package_items, Equipment, EquipSlot, InventoryItem};
+use crate::inventory::{EquipSlot, Equipment, InventoryItem, gear_package_items};
 use crate::world::{QuestProgress, WorldState};
-use sqlx::{sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow}, Row};
+use sqlx::{
+    Row,
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow},
+};
 use std::{collections::HashMap, str::FromStr};
 
 pub async fn init() -> color_eyre::Result<sqlx::SqlitePool> {
@@ -14,12 +17,22 @@ pub async fn init() -> color_eyre::Result<sqlx::SqlitePool> {
     Ok(pool)
 }
 
-pub async fn save_character(pool: &sqlx::SqlitePool, creation: &CharacterCreation) -> color_eyre::Result<i64> {
+pub async fn save_character(
+    pool: &sqlx::SqlitePool,
+    creation: &CharacterCreation,
+) -> color_eyre::Result<i64> {
     let class = creation.selected_class();
     let stats = creation.final_stats();
     let max_hp = 88 + stats.modifier(crate::character::MajorSkill::Constitution) * 5;
-    let max_mana = 20 + mana_growth(class) * 2 + stats.modifier(crate::character::MajorSkill::Wisdom).max(0) * 3;
-    let max_stamina = 24 + stamina_growth(class) * 2 + stats.modifier(crate::character::MajorSkill::Constitution).max(0) * 3;
+    let max_mana = 20
+        + mana_growth(class) * 2
+        + stats.modifier(crate::character::MajorSkill::Wisdom).max(0) * 3;
+    let max_stamina = 24
+        + stamina_growth(class) * 2
+        + stats
+            .modifier(crate::character::MajorSkill::Constitution)
+            .max(0)
+            * 3;
 
     let id = sqlx::query(
         "INSERT INTO characters
@@ -76,7 +89,10 @@ pub async fn save_character(pool: &sqlx::SqlitePool, creation: &CharacterCreatio
     Ok(id)
 }
 
-pub async fn load_character_by_id(pool: &sqlx::SqlitePool, id: i64) -> color_eyre::Result<SavedCharacter> {
+pub async fn load_character_by_id(
+    pool: &sqlx::SqlitePool,
+    id: i64,
+) -> color_eyre::Result<SavedCharacter> {
     let row = sqlx::query("SELECT * FROM characters WHERE id = ?1")
         .bind(id)
         .fetch_one(pool)
@@ -95,7 +111,10 @@ pub async fn load_characters(pool: &sqlx::SqlitePool) -> color_eyre::Result<Vec<
     Ok(out)
 }
 
-pub async fn save_character_state(pool: &sqlx::SqlitePool, character: &SavedCharacter) -> color_eyre::Result<()> {
+pub async fn save_character_state(
+    pool: &sqlx::SqlitePool,
+    character: &SavedCharacter,
+) -> color_eyre::Result<()> {
     sqlx::query(
         "UPDATE characters SET
             level = ?1, xp = ?2, gold = ?3, unspent_stat_points = ?4,
@@ -141,7 +160,12 @@ pub async fn save_character_state(pool: &sqlx::SqlitePool, character: &SavedChar
     Ok(())
 }
 
-pub async fn save_proficiency_xp(pool: &sqlx::SqlitePool, character_id: i64, skill: MinorSkill, xp: i32) -> color_eyre::Result<()> {
+pub async fn save_proficiency_xp(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    skill: MinorSkill,
+    xp: i32,
+) -> color_eyre::Result<()> {
     sqlx::query(
         "INSERT INTO character_proficiencies (character_id, skill_name, xp) VALUES (?1, ?2, ?3)
          ON CONFLICT(character_id, skill_name) DO UPDATE SET xp = excluded.xp",
@@ -154,7 +178,10 @@ pub async fn save_proficiency_xp(pool: &sqlx::SqlitePool, character_id: i64, ski
     Ok(())
 }
 
-pub async fn load_inventory(pool: &sqlx::SqlitePool, character_id: i64) -> color_eyre::Result<Vec<InventoryItem>> {
+pub async fn load_inventory(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<Vec<InventoryItem>> {
     let rows = sqlx::query("SELECT item_type, quantity FROM inventory WHERE character_id = ?1 AND quantity > 0 ORDER BY item_type")
         .bind(character_id)
         .fetch_all(pool)
@@ -168,7 +195,12 @@ pub async fn load_inventory(pool: &sqlx::SqlitePool, character_id: i64) -> color
         .collect())
 }
 
-pub async fn add_item(pool: &sqlx::SqlitePool, character_id: i64, item_type: &str, quantity: i32) -> color_eyre::Result<()> {
+pub async fn add_item(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    item_type: &str,
+    quantity: i32,
+) -> color_eyre::Result<()> {
     sqlx::query(
         "INSERT INTO inventory (character_id, item_type, quantity) VALUES (?1, ?2, ?3)
          ON CONFLICT(character_id, item_type) DO UPDATE SET quantity = quantity + excluded.quantity",
@@ -181,7 +213,12 @@ pub async fn add_item(pool: &sqlx::SqlitePool, character_id: i64, item_type: &st
     Ok(())
 }
 
-pub async fn remove_item(pool: &sqlx::SqlitePool, character_id: i64, item_type: &str, quantity: i32) -> color_eyre::Result<()> {
+pub async fn remove_item(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    item_type: &str,
+    quantity: i32,
+) -> color_eyre::Result<()> {
     sqlx::query(
         "UPDATE inventory SET quantity = MAX(quantity - ?1, 0) WHERE character_id = ?2 AND item_type = ?3",
     )
@@ -193,7 +230,10 @@ pub async fn remove_item(pool: &sqlx::SqlitePool, character_id: i64, item_type: 
     Ok(())
 }
 
-pub async fn seed_starting_inventory(pool: &sqlx::SqlitePool, character_id: i64) -> color_eyre::Result<()> {
+pub async fn seed_starting_inventory(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<()> {
     for (item, qty) in [
         ("health_potion", 3),
         ("bandage", 2),
@@ -206,7 +246,11 @@ pub async fn seed_starting_inventory(pool: &sqlx::SqlitePool, character_id: i64)
     Ok(())
 }
 
-pub async fn seed_starting_gear(pool: &sqlx::SqlitePool, character_id: i64, gear_name: &str) -> color_eyre::Result<()> {
+pub async fn seed_starting_gear(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    gear_name: &str,
+) -> color_eyre::Result<()> {
     for (slot, item_type) in gear_package_items(gear_name) {
         sqlx::query(
             "INSERT INTO equipment (character_id, slot, item_type) VALUES (?1, ?2, ?3)
@@ -221,7 +265,10 @@ pub async fn seed_starting_gear(pool: &sqlx::SqlitePool, character_id: i64, gear
     Ok(())
 }
 
-pub async fn load_equipment(pool: &sqlx::SqlitePool, character_id: i64) -> color_eyre::Result<Equipment> {
+pub async fn load_equipment(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<Equipment> {
     let rows = sqlx::query("SELECT slot, item_type FROM equipment WHERE character_id = ?1")
         .bind(character_id)
         .fetch_all(pool)
@@ -237,7 +284,12 @@ pub async fn load_equipment(pool: &sqlx::SqlitePool, character_id: i64) -> color
     Ok(out)
 }
 
-pub async fn equip_item(pool: &sqlx::SqlitePool, character_id: i64, slot: EquipSlot, item_type: &str) -> color_eyre::Result<()> {
+pub async fn equip_item(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    slot: EquipSlot,
+    item_type: &str,
+) -> color_eyre::Result<()> {
     sqlx::query(
         "INSERT INTO equipment (character_id, slot, item_type) VALUES (?1, ?2, ?3)
          ON CONFLICT(character_id, slot) DO UPDATE SET item_type = excluded.item_type",
@@ -250,7 +302,11 @@ pub async fn equip_item(pool: &sqlx::SqlitePool, character_id: i64, slot: EquipS
     Ok(())
 }
 
-pub async fn unequip_item(pool: &sqlx::SqlitePool, character_id: i64, slot: EquipSlot) -> color_eyre::Result<()> {
+pub async fn unequip_item(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    slot: EquipSlot,
+) -> color_eyre::Result<()> {
     sqlx::query("DELETE FROM equipment WHERE character_id = ?1 AND slot = ?2")
         .bind(character_id)
         .bind(slot.db_key())
@@ -259,8 +315,14 @@ pub async fn unequip_item(pool: &sqlx::SqlitePool, character_id: i64, slot: Equi
     Ok(())
 }
 
-pub async fn load_world_state(pool: &sqlx::SqlitePool, character_id: i64) -> color_eyre::Result<WorldState> {
-    let row = sqlx::query("SELECT current_area, unlocked_areas, completed_quests, world_flags FROM world_state WHERE character_id = ?1")
+pub async fn load_world_state(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<WorldState> {
+    let row = sqlx::query(
+        "SELECT current_area, unlocked_areas, completed_quests, world_flags, campaign_day, hour_of_day
+         FROM world_state WHERE character_id = ?1",
+    )
         .bind(character_id)
         .fetch_optional(pool)
         .await?;
@@ -277,25 +339,35 @@ pub async fn load_world_state(pool: &sqlx::SqlitePool, character_id: i64) -> col
     }
     state.completed_quests = split_csv(row.get::<String, _>("completed_quests"));
     state.world_flags = split_csv(row.get::<String, _>("world_flags"));
+    state.campaign_day = row.get::<i64, _>("campaign_day") as i32;
+    state.hour_of_day = row.get::<i64, _>("hour_of_day") as i32;
     state.active_quests = load_quests(pool, character_id).await?;
     Ok(state)
 }
 
-pub async fn save_world_state(pool: &sqlx::SqlitePool, character_id: i64, state: &WorldState) -> color_eyre::Result<()> {
+pub async fn save_world_state(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    state: &WorldState,
+) -> color_eyre::Result<()> {
     sqlx::query(
-        "INSERT INTO world_state (character_id, current_area, unlocked_areas, completed_quests, world_flags)
-         VALUES (?1, ?2, ?3, ?4, ?5)
+        "INSERT INTO world_state (character_id, current_area, unlocked_areas, completed_quests, world_flags, campaign_day, hour_of_day)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT(character_id) DO UPDATE SET
              current_area = excluded.current_area,
              unlocked_areas = excluded.unlocked_areas,
              completed_quests = excluded.completed_quests,
-             world_flags = excluded.world_flags",
+             world_flags = excluded.world_flags,
+             campaign_day = excluded.campaign_day,
+             hour_of_day = excluded.hour_of_day",
     )
     .bind(character_id)
     .bind(state.current_area.as_deref())
     .bind(join_csv(&state.unlocked_areas))
     .bind(join_csv(&state.completed_quests))
     .bind(join_csv(&state.world_flags))
+    .bind(state.campaign_day)
+    .bind(state.hour_of_day)
     .execute(pool)
     .await?;
 
@@ -321,7 +393,10 @@ pub async fn save_world_state(pool: &sqlx::SqlitePool, character_id: i64, state:
     Ok(())
 }
 
-pub async fn load_quests(pool: &sqlx::SqlitePool, character_id: i64) -> color_eyre::Result<Vec<QuestProgress>> {
+pub async fn load_quests(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<Vec<QuestProgress>> {
     let rows = sqlx::query(
         "SELECT quest_id, accepted, completed, objective_index, progress FROM quests WHERE character_id = ?1",
     )
@@ -340,7 +415,10 @@ pub async fn load_quests(pool: &sqlx::SqlitePool, character_id: i64) -> color_ey
         .collect())
 }
 
-async fn row_to_character(pool: &sqlx::SqlitePool, row: &SqliteRow) -> color_eyre::Result<SavedCharacter> {
+async fn row_to_character(
+    pool: &sqlx::SqlitePool,
+    row: &SqliteRow,
+) -> color_eyre::Result<SavedCharacter> {
     let id = row.get("id");
     let class = Class::from_name(row.get::<String, _>("class").as_str());
     let mut known_abilities = load_abilities(pool, id).await?;
@@ -349,7 +427,10 @@ async fn row_to_character(pool: &sqlx::SqlitePool, row: &SqliteRow) -> color_eyr
         .into_iter()
         .filter(|(level, _)| *level <= row.get::<i64, _>("level") as i32)
     {
-        if !known_abilities.iter().any(|ability| ability.ability_id == ability_id) {
+        if !known_abilities
+            .iter()
+            .any(|ability| ability.ability_id == ability_id)
+        {
             known_abilities.push(KnownAbility {
                 ability_id: ability_id.to_string(),
                 rank: 1,
@@ -395,14 +476,23 @@ async fn row_to_character(pool: &sqlx::SqlitePool, row: &SqliteRow) -> color_eyr
     })
 }
 
-async fn load_proficiencies(pool: &sqlx::SqlitePool, character_id: i64) -> color_eyre::Result<Vec<ProficiencyData>> {
-    let rows = sqlx::query("SELECT skill_name, xp FROM character_proficiencies WHERE character_id = ?1")
-        .bind(character_id)
-        .fetch_all(pool)
-        .await?;
+async fn load_proficiencies(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<Vec<ProficiencyData>> {
+    let rows =
+        sqlx::query("SELECT skill_name, xp FROM character_proficiencies WHERE character_id = ?1")
+            .bind(character_id)
+            .fetch_all(pool)
+            .await?;
     let map: HashMap<String, i32> = rows
         .into_iter()
-        .map(|row| (row.get::<String, _>("skill_name"), row.get::<i64, _>("xp") as i32))
+        .map(|row| {
+            (
+                row.get::<String, _>("skill_name"),
+                row.get::<i64, _>("xp") as i32,
+            )
+        })
         .collect();
     Ok(MinorSkill::ALL
         .iter()
@@ -413,7 +503,10 @@ async fn load_proficiencies(pool: &sqlx::SqlitePool, character_id: i64) -> color
         .collect())
 }
 
-async fn load_abilities(pool: &sqlx::SqlitePool, character_id: i64) -> color_eyre::Result<Vec<KnownAbility>> {
+async fn load_abilities(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<Vec<KnownAbility>> {
     let rows = sqlx::query(
         "SELECT ability_id, rank, unlocked, cooldown_remaining FROM character_abilities WHERE character_id = ?1",
     )

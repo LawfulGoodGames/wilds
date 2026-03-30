@@ -68,7 +68,11 @@ pub enum QuestId {
 }
 
 impl QuestId {
-    pub const ALL: [QuestId; 3] = [QuestId::FirstBlood, QuestId::SupplyLine, QuestId::TombQuietus];
+    pub const ALL: [QuestId; 3] = [
+        QuestId::FirstBlood,
+        QuestId::SupplyLine,
+        QuestId::TombQuietus,
+    ];
 
     pub fn id(self) -> &'static str {
         match self {
@@ -150,6 +154,8 @@ pub struct WorldState {
     pub active_quests: Vec<QuestProgress>,
     pub completed_quests: Vec<String>,
     pub world_flags: Vec<String>,
+    pub campaign_day: i32,
+    pub hour_of_day: i32,
 }
 
 impl Default for WorldState {
@@ -160,6 +166,8 @@ impl Default for WorldState {
             active_quests: vec![],
             completed_quests: vec![],
             world_flags: vec![],
+            campaign_day: 1,
+            hour_of_day: 8,
         }
     }
 }
@@ -180,11 +188,15 @@ impl WorldState {
     }
 
     pub fn active_quest(&self, quest: QuestId) -> Option<&QuestProgress> {
-        self.active_quests.iter().find(|it| it.quest_id == quest.id())
+        self.active_quests
+            .iter()
+            .find(|it| it.quest_id == quest.id())
     }
 
     pub fn active_quest_mut(&mut self, quest: QuestId) -> Option<&mut QuestProgress> {
-        self.active_quests.iter_mut().find(|it| it.quest_id == quest.id())
+        self.active_quests
+            .iter_mut()
+            .find(|it| it.quest_id == quest.id())
     }
 
     pub fn accept_quest(&mut self, quest: QuestId) -> bool {
@@ -199,6 +211,28 @@ impl WorldState {
             progress: 0,
         });
         true
+    }
+
+    pub fn advance_time(&mut self, hours: i32) {
+        if hours <= 0 {
+            return;
+        }
+        let total_hours = self.hour_of_day + hours;
+        self.campaign_day += (total_hours - 1) / 24;
+        self.hour_of_day = ((total_hours - 1) % 24) + 1;
+    }
+
+    pub fn time_label(&self) -> String {
+        let period = match self.hour_of_day {
+            5..=11 => "Morning",
+            12..=16 => "Afternoon",
+            17..=20 => "Evening",
+            _ => "Night",
+        };
+        format!(
+            "Day {} • {:02}:00 {}",
+            self.campaign_day, self.hour_of_day, period
+        )
     }
 }
 
@@ -285,24 +319,60 @@ pub const QUESTS: &[QuestDef] = &[
 ];
 
 const QUARTERMASTER_STOCK: &[VendorItem] = &[
-    VendorItem { item_type: "iron_sword", stock: 1 },
-    VendorItem { item_type: "wooden_shield", stock: 1 },
-    VendorItem { item_type: "leather_chest", stock: 1 },
-    VendorItem { item_type: "health_potion", stock: 5 },
+    VendorItem {
+        item_type: "iron_sword",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "wooden_shield",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "leather_chest",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "health_potion",
+        stock: 5,
+    },
 ];
 
 const ARCANIST_STOCK: &[VendorItem] = &[
-    VendorItem { item_type: "apprentice_staff", stock: 1 },
-    VendorItem { item_type: "ember_wand", stock: 1 },
-    VendorItem { item_type: "mana_tonic", stock: 4 },
-    VendorItem { item_type: "antidote", stock: 3 },
+    VendorItem {
+        item_type: "apprentice_staff",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "ember_wand",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "mana_tonic",
+        stock: 4,
+    },
+    VendorItem {
+        item_type: "antidote",
+        stock: 3,
+    },
 ];
 
 const PROVISIONER_STOCK: &[VendorItem] = &[
-    VendorItem { item_type: "ration", stock: 6 },
-    VendorItem { item_type: "bandage", stock: 5 },
-    VendorItem { item_type: "stamina_draught", stock: 4 },
-    VendorItem { item_type: "traveler_cloak", stock: 1 },
+    VendorItem {
+        item_type: "ration",
+        stock: 6,
+    },
+    VendorItem {
+        item_type: "bandage",
+        stock: 5,
+    },
+    VendorItem {
+        item_type: "stamina_draught",
+        stock: 4,
+    },
+    VendorItem {
+        item_type: "traveler_cloak",
+        stock: 1,
+    },
 ];
 
 pub const VENDORS: &[VendorDef] = &[
@@ -358,7 +428,10 @@ pub fn quest_def(id: &str) -> Option<&'static QuestDef> {
 }
 
 pub fn vendor_def(id: VendorId) -> &'static VendorDef {
-    VENDORS.iter().find(|vendor| vendor.id == id).unwrap_or(&VENDORS[0])
+    VENDORS
+        .iter()
+        .find(|vendor| vendor.id == id)
+        .unwrap_or(&VENDORS[0])
 }
 
 pub fn area_def(id: AreaId) -> &'static AreaDef {

@@ -1,6 +1,15 @@
 pub const MAX_LEVEL: i32 = 20;
 pub const STAT_POINTS: i32 = 6;
-pub const MAX_PROFICIENCY_LEVEL: u32 = 99;
+pub const MAX_PROFICIENCY_LEVEL: u32 = 100;
+
+#[derive(Debug, Clone, Copy)]
+pub struct StudyPlan {
+    pub hours: i32,
+    pub success_chance: i32,
+    pub success_xp: i32,
+    pub failure_xp: i32,
+    pub governing_stat: MajorSkill,
+}
 
 pub fn xp_for_level(level: i32) -> i32 {
     if level <= 1 {
@@ -130,6 +139,23 @@ impl MinorSkill {
             Self::Runecrafting => "Channel raw magical script into useful power.",
         }
     }
+
+    pub fn governing_stat(self) -> MajorSkill {
+        match self {
+            Self::Cooking => MajorSkill::Wisdom,
+            Self::Blacksmithing => MajorSkill::Strength,
+            Self::Mining => MajorSkill::Constitution,
+            Self::Woodcutting => MajorSkill::Strength,
+            Self::Fishing => MajorSkill::Wisdom,
+            Self::Herbalism => MajorSkill::Intelligence,
+            Self::Farming => MajorSkill::Constitution,
+            Self::Crafting => MajorSkill::Dexterity,
+            Self::Enchanting => MajorSkill::Intelligence,
+            Self::Thieving => MajorSkill::Dexterity,
+            Self::Prayer => MajorSkill::Wisdom,
+            Self::Runecrafting => MajorSkill::Intelligence,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +180,30 @@ impl ProficiencyData {
         } else {
             proficiency_xp_for_level(level + 1).saturating_sub(self.xp as u32)
         }
+    }
+}
+
+pub fn study_plan(skill: MinorSkill, xp: i32, stats: &Stats) -> StudyPlan {
+    let level = proficiency_level_from_xp(xp) as i32;
+    let aptitude = stats.modifier(skill.governing_stat());
+    let success_chance = (88 - level * 4 + aptitude * 5).clamp(8, 92);
+    let hours = match level {
+        1..=9 => 4,
+        10..=24 => 8,
+        25..=39 => 12,
+        40..=59 => 18,
+        60..=79 => 28,
+        80..=94 => 40,
+        _ => 55,
+    };
+    let success_xp = (20 + aptitude.max(0) * 3 + (level / 8)).clamp(8, 36);
+    let failure_xp = (success_xp / 5).max(1);
+    StudyPlan {
+        hours,
+        success_chance,
+        success_xp,
+        failure_xp,
+        governing_stat: skill.governing_stat(),
     }
 }
 
@@ -673,7 +723,14 @@ impl SavedCharacter {
         self.stats.by_skill(kind)
     }
 
-    pub fn derived_stats(&self, equipment_armor: i32, _attack_bonus: i32, spell_power_bonus: i32, crit_bonus: i32, initiative_bonus: i32) -> DerivedStats {
+    pub fn derived_stats(
+        &self,
+        equipment_armor: i32,
+        _attack_bonus: i32,
+        spell_power_bonus: i32,
+        crit_bonus: i32,
+        initiative_bonus: i32,
+    ) -> DerivedStats {
         let dex = self.stats.modifier(MajorSkill::Dexterity);
         let wis = self.stats.modifier(MajorSkill::Wisdom);
         let int = self.stats.modifier(MajorSkill::Intelligence);
@@ -706,7 +763,8 @@ impl SavedCharacter {
         }
 
         let levels_gained = new_level - before_level;
-        let hp_gain = 8 * levels_gained + self.stats.modifier(MajorSkill::Constitution).max(1) * levels_gained;
+        let hp_gain = 8 * levels_gained
+            + self.stats.modifier(MajorSkill::Constitution).max(1) * levels_gained;
         let mana_gain = mana_growth(self.class) * levels_gained;
         let stamina_gain = stamina_growth(self.class) * levels_gained;
         self.resources.max_hp += hp_gain;
@@ -773,7 +831,11 @@ pub fn stamina_growth(class: Class) -> i32 {
 
 pub fn class_progression(class: Class) -> CharacterClassProgression {
     let unlocks = match class {
-        Class::Warrior => vec![(1, "guard_stance"), (2, "cleaving_blow"), (4, "shield_bash")],
+        Class::Warrior => vec![
+            (1, "guard_stance"),
+            (2, "cleaving_blow"),
+            (4, "shield_bash"),
+        ],
         Class::Ranger => vec![(1, "hunters_mark"), (2, "volley"), (4, "crippling_shot")],
         Class::Mage => vec![(1, "ember_burst"), (2, "frost_lance"), (4, "storm_surge")],
         Class::Rogue => vec![(1, "dirty_cut"), (2, "evasion"), (4, "shadow_flurry")],
@@ -833,7 +895,8 @@ impl CharacterCreation {
     }
 
     pub fn final_stats(&self) -> Stats {
-        self.base_stats.add_bonuses(&self.selected_race().stat_bonuses())
+        self.base_stats
+            .add_bonuses(&self.selected_race().stat_bonuses())
     }
 
     pub fn adjust_stat(&mut self, dir: i32) {
@@ -845,5 +908,36 @@ impl CharacterCreation {
             self.base_stats.add(self.stat_cursor, -1);
             self.points_remaining += 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MajorSkill, MinorSkill, Stats, proficiency_xp_for_level, study_plan};
+
+    #[test]
+    fn studying_gets_harder_at_higher_ranks() {
+        let stats = Stats {
+            strength: 12,
+            dexterity: 12,
+            constitution: 12,
+            intelligence: 12,
+            wisdom: 12,
+            charisma: 12,
+        };
+        let novice = study_plan(MinorSkill::Runecrafting, 0, &stats);
+        let veteran = study_plan(
+            MinorSkill::Runecrafting,
+            proficiency_xp_for_level(25) as i32,
+            &stats,
+        );
+        assert!(novice.success_chance > veteran.success_chance);
+        assert!(novice.hours < veteran.hours);
+    }
+
+    #[test]
+    fn study_plan_uses_skill_governing_stat() {
+        let plan = study_plan(MinorSkill::Thieving, 0, &Stats::default());
+        assert_eq!(plan.governing_stat, MajorSkill::Dexterity);
     }
 }

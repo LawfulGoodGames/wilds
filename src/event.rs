@@ -64,7 +64,10 @@ impl EventHandler {
     }
 
     pub async fn next(&mut self) -> color_eyre::Result<Event> {
-        self.receiver.recv().await.ok_or_eyre("Failed to receive event")
+        self.receiver
+            .recv()
+            .await
+            .ok_or_eyre("Failed to receive event")
     }
 
     pub fn send(&mut self, app_event: AppEvent) {
@@ -101,4 +104,3 @@ impl EventTask {
         Ok(())
     }
 }
-

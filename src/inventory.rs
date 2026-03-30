@@ -208,28 +208,78 @@ impl ItemDef {
 }
 
 const IRON_SWORD_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Slash", accuracy_bonus: 2, min_damage: 5, max_damage: 9 },
-    AttackOption { name: "Lunge", accuracy_bonus: 1, min_damage: 7, max_damage: 11 },
+    AttackOption {
+        name: "Slash",
+        accuracy_bonus: 2,
+        min_damage: 5,
+        max_damage: 9,
+    },
+    AttackOption {
+        name: "Lunge",
+        accuracy_bonus: 1,
+        min_damage: 7,
+        max_damage: 11,
+    },
 ];
 
 const TWIN_DAGGER_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Quick Slash", accuracy_bonus: 3, min_damage: 4, max_damage: 7 },
-    AttackOption { name: "Backstab", accuracy_bonus: 1, min_damage: 6, max_damage: 10 },
+    AttackOption {
+        name: "Quick Slash",
+        accuracy_bonus: 3,
+        min_damage: 4,
+        max_damage: 7,
+    },
+    AttackOption {
+        name: "Backstab",
+        accuracy_bonus: 1,
+        min_damage: 6,
+        max_damage: 10,
+    },
 ];
 
 const BOW_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Quick Shot", accuracy_bonus: 3, min_damage: 4, max_damage: 8 },
-    AttackOption { name: "Power Draw", accuracy_bonus: 1, min_damage: 6, max_damage: 10 },
+    AttackOption {
+        name: "Quick Shot",
+        accuracy_bonus: 3,
+        min_damage: 4,
+        max_damage: 8,
+    },
+    AttackOption {
+        name: "Power Draw",
+        accuracy_bonus: 1,
+        min_damage: 6,
+        max_damage: 10,
+    },
 ];
 
 const STAFF_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Arcane Bolt", accuracy_bonus: 2, min_damage: 5, max_damage: 9 },
-    AttackOption { name: "Frost Tap", accuracy_bonus: 2, min_damage: 4, max_damage: 8 },
+    AttackOption {
+        name: "Arcane Bolt",
+        accuracy_bonus: 2,
+        min_damage: 5,
+        max_damage: 9,
+    },
+    AttackOption {
+        name: "Frost Tap",
+        accuracy_bonus: 2,
+        min_damage: 4,
+        max_damage: 8,
+    },
 ];
 
 const WAND_ATTACKS: &[AttackOption] = &[
-    AttackOption { name: "Fire Spark", accuracy_bonus: 2, min_damage: 5, max_damage: 10 },
-    AttackOption { name: "Ember Lance", accuracy_bonus: 1, min_damage: 7, max_damage: 11 },
+    AttackOption {
+        name: "Fire Spark",
+        accuracy_bonus: 2,
+        min_damage: 5,
+        max_damage: 10,
+    },
+    AttackOption {
+        name: "Ember Lance",
+        accuracy_bonus: 1,
+        min_damage: 7,
+        max_damage: 11,
+    },
 ];
 
 const HEALTH_EFFECT: &[ItemEffect] = &[ItemEffect::HealHp(24)];
@@ -463,7 +513,10 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
             spell_power: 0,
             crit_bonus: 0,
             initiative_bonus: 0,
-            resistances: ResistanceProfile { physical: 1, ..ZERO_RESISTANCES },
+            resistances: ResistanceProfile {
+                physical: 1,
+                ..ZERO_RESISTANCES
+            },
         },
     },
     ItemDef {
@@ -484,7 +537,10 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
             spell_power: 0,
             crit_bonus: 0,
             initiative_bonus: 0,
-            resistances: ResistanceProfile { physical: 1, ..ZERO_RESISTANCES },
+            resistances: ResistanceProfile {
+                physical: 1,
+                ..ZERO_RESISTANCES
+            },
         },
     },
     ItemDef {
@@ -526,7 +582,10 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
             spell_power: 0,
             crit_bonus: 0,
             initiative_bonus: 1,
-            resistances: ResistanceProfile { frost: 1, ..ZERO_RESISTANCES },
+            resistances: ResistanceProfile {
+                frost: 1,
+                ..ZERO_RESISTANCES
+            },
         },
     },
     ItemDef {
@@ -547,7 +606,11 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
             spell_power: 2,
             crit_bonus: 0,
             initiative_bonus: 0,
-            resistances: ResistanceProfile { holy: 2, shadow: 1, ..ZERO_RESISTANCES },
+            resistances: ResistanceProfile {
+                holy: 2,
+                shadow: 1,
+                ..ZERO_RESISTANCES
+            },
         },
     },
     ItemDef {

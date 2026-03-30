@@ -1,10 +1,15 @@
-use crate::character::{level_progress_pct, xp_to_next_level, CharacterCreation, Class, CreationStep, GearPackage, Race, SavedCharacter};
-use crate::combat::{ActionTab, CombatOutcome, CombatState, PlayerAction};
+use crate::character::{
+    CharacterCreation, Class, CreationStep, GearPackage, MAX_PROFICIENCY_LEVEL, MinorSkill, Race,
+    SavedCharacter, level_progress_pct, study_plan, xp_to_next_level,
+};
+use crate::combat::{ActionTab, CombatOutcome, CombatState, PlayerAction, ability_def};
 use crate::db;
 use crate::event::{AppEvent, Event, EventHandler};
-use crate::inventory::{find_def, Equipment, EquipSlot, InventoryState, ItemEffect};
-use crate::settings::{UserSettings, OPTIONS_COUNT};
-use crate::world::{area_def, quest_def, vendor_def, AreaId, QuestId, VendorId, WorldState, ObjectiveKind};
+use crate::inventory::{EquipSlot, Equipment, InventoryState, ItemEffect, find_def};
+use crate::settings::{OPTIONS_COUNT, UserSettings};
+use crate::world::{
+    AreaId, ObjectiveKind, QuestId, VendorId, WorldState, area_def, quest_def, vendor_def,
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rand::RngExt;
 use ratatui::DefaultTerminal;
@@ -117,6 +122,29 @@ impl CharacterTab {
     }
 }
 
+const TRAINING_TICKS_PER_HOUR: u32 = 20;
+
+#[derive(Debug, Clone)]
+pub struct ActiveTraining {
+    pub skill: MinorSkill,
+    pub total_ticks: u32,
+    pub elapsed_ticks: u32,
+    pub hours: i32,
+    pub success_chance: i32,
+    pub success_xp: i32,
+    pub failure_xp: i32,
+}
+
+impl ActiveTraining {
+    pub fn progress(&self) -> f64 {
+        if self.total_ticks == 0 {
+            1.0
+        } else {
+            (self.elapsed_ticks as f64 / self.total_ticks as f64).clamp(0.0, 1.0)
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct App {
     pub running: bool,
@@ -145,6 +173,8 @@ pub struct App {
     pub dialogue_lines: Vec<String>,
     pub dialogue_return: Screen,
     pub status_message: Option<String>,
+    pub active_training: Option<ActiveTraining>,
+    pub recent_training_level_up: Option<(MinorSkill, u32)>,
     pool: SqlitePool,
     pub events: EventHandler,
 }
@@ -178,6 +208,8 @@ impl App {
             dialogue_lines: vec![],
             dialogue_return: Screen::Town,
             status_message: None,
+            active_training: None,
+            recent_training_level_up: None,
             pool,
             events: EventHandler::new(),
         }
@@ -187,7 +219,7 @@ impl App {
         while self.running {
             terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
             match self.events.next().await? {
-                Event::Tick => {}
+                Event::Tick => self.handle_tick().await?,
                 Event::Crossterm(event) => {
                     if let crossterm::event::Event::Key(key_event) = event {
                         if key_event.kind == crossterm::event::KeyEventKind::Press {
@@ -198,6 +230,21 @@ impl App {
                 Event::App(event) => self.handle_app_event(event).await?,
             }
         }
+        Ok(())
+    }
+
+    async fn handle_tick(&mut self) -> color_eyre::Result<()> {
+        let ready = if let Some(training) = self.active_training.as_mut() {
+            training.elapsed_ticks = (training.elapsed_ticks + 1).min(training.total_ticks);
+            training.elapsed_ticks >= training.total_ticks
+        } else {
+            false
+        };
+
+        if ready {
+            self.resolve_training_completion().await?;
+        }
+
         Ok(())
     }
 
@@ -227,7 +274,9 @@ impl App {
                     KeyCode::Backspace => {
                         self.creation.name.pop();
                     }
-                    KeyCode::Enter if !self.creation.name.trim().is_empty() => self.events.send(AppEvent::Confirm),
+                    KeyCode::Enter if !self.creation.name.trim().is_empty() => {
+                        self.events.send(AppEvent::Confirm)
+                    }
                     KeyCode::Esc => self.events.send(AppEvent::Back),
                     _ => {}
                 },
@@ -282,6 +331,7 @@ impl App {
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
                 KeyCode::Left | KeyCode::Char('h') => self.events.send(AppEvent::Left),
                 KeyCode::Right | KeyCode::Char('l') => self.events.send(AppEvent::Right),
+                KeyCode::Enter | KeyCode::Char('t') => self.events.send(AppEvent::Confirm),
                 KeyCode::Tab => self.events.send(AppEvent::NextTab),
                 KeyCode::Esc => self.events.send(AppEvent::Back),
                 _ => {}
@@ -313,13 +363,17 @@ impl App {
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
                 KeyCode::Enter => self.events.send(AppEvent::ShopTransaction),
                 KeyCode::Tab => self.events.send(AppEvent::ShopToggleMode),
-                KeyCode::Left | KeyCode::Char('h') => self.events.send(AppEvent::ShopPreviousVendor),
+                KeyCode::Left | KeyCode::Char('h') => {
+                    self.events.send(AppEvent::ShopPreviousVendor)
+                }
                 KeyCode::Right | KeyCode::Char('l') => self.events.send(AppEvent::ShopNextVendor),
                 KeyCode::Esc => self.events.send(AppEvent::Back),
                 _ => {}
             },
             Screen::Dialogue => match key_event.code {
-                KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
+                KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => {
+                    self.events.send(AppEvent::Back)
+                }
                 _ => {}
             },
             Screen::Combat => match key_event.code {
@@ -327,9 +381,13 @@ impl App {
                 KeyCode::Char('2') => self.events.send(AppEvent::CombatTabAbility),
                 KeyCode::Char('3') => self.events.send(AppEvent::CombatTabItem),
                 KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::CombatCycleOptionUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::CombatCycleOptionDown),
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.events.send(AppEvent::CombatCycleOptionDown)
+                }
                 KeyCode::Tab => self.events.send(AppEvent::CombatCycleTarget),
-                KeyCode::Enter | KeyCode::Char('a') => self.events.send(AppEvent::CombatUseSelected),
+                KeyCode::Enter | KeyCode::Char('a') => {
+                    self.events.send(AppEvent::CombatUseSelected)
+                }
                 KeyCode::Char('d') => self.events.send(AppEvent::CombatDefend),
                 KeyCode::Char('f') => self.events.send(AppEvent::CombatFlee),
                 KeyCode::Esc => self.events.send(AppEvent::CombatFlee),
@@ -368,8 +426,14 @@ impl App {
             AppEvent::CombatCycleOptionDown => self.cycle_combat_option(1),
             AppEvent::CombatCycleTarget => self.cycle_combat_target(1),
             AppEvent::CombatUseSelected => self.handle_combat_action().await?,
-            AppEvent::CombatDefend => self.handle_explicit_combat_action(PlayerAction::Defend).await?,
-            AppEvent::CombatFlee => self.handle_explicit_combat_action(PlayerAction::Flee).await?,
+            AppEvent::CombatDefend => {
+                self.handle_explicit_combat_action(PlayerAction::Defend)
+                    .await?
+            }
+            AppEvent::CombatFlee => {
+                self.handle_explicit_combat_action(PlayerAction::Flee)
+                    .await?
+            }
             AppEvent::Quit => self.quit(),
         }
         Ok(())
@@ -379,19 +443,29 @@ impl App {
         match self.screen {
             Screen::MainMenu => cycle_cursor(&mut self.selected, -1, MenuItem::ALL.len()),
             Screen::Options => cycle_cursor(&mut self.options_cursor, -1, OPTIONS_COUNT),
-            Screen::LoadGame if !self.saved_characters.is_empty() => cycle_cursor(&mut self.load_cursor, -1, self.saved_characters.len()),
+            Screen::LoadGame if !self.saved_characters.is_empty() => {
+                cycle_cursor(&mut self.load_cursor, -1, self.saved_characters.len())
+            }
             Screen::Town => cycle_cursor(&mut self.town_cursor, -1, TownAction::ALL.len()),
             Screen::Explore => cycle_cursor(&mut self.explore_cursor, -1, AreaId::ALL.len()),
-            Screen::CharacterSheet => self.character_cursor = self.character_cursor.saturating_sub(1),
+            Screen::CharacterSheet => {
+                self.character_cursor = self.character_cursor.saturating_sub(1)
+            }
             Screen::Inventory => self.inventory.cursor_up(),
             Screen::Equipment => cycle_cursor(&mut self.equipment_cursor, -1, EquipSlot::ALL.len()),
             Screen::Quests => cycle_cursor(&mut self.quest_cursor, -1, QuestId::ALL.len()),
             Screen::Shop => self.shop_cursor = self.shop_cursor.saturating_sub(1),
             Screen::CharacterCreation => match self.creation.step {
-                CreationStep::Race => cycle_cursor(&mut self.creation.race_cursor, -1, Race::ALL.len()),
-                CreationStep::Class => cycle_cursor(&mut self.creation.class_cursor, -1, Class::ALL.len()),
+                CreationStep::Race => {
+                    cycle_cursor(&mut self.creation.race_cursor, -1, Race::ALL.len())
+                }
+                CreationStep::Class => {
+                    cycle_cursor(&mut self.creation.class_cursor, -1, Class::ALL.len())
+                }
                 CreationStep::Stats => cycle_cursor(&mut self.creation.stat_cursor, -1, 6),
-                CreationStep::Gear => cycle_cursor(&mut self.creation.gear_cursor, -1, GearPackage::ALL.len()),
+                CreationStep::Gear => {
+                    cycle_cursor(&mut self.creation.gear_cursor, -1, GearPackage::ALL.len())
+                }
                 _ => {}
             },
             _ => {}
@@ -402,7 +476,9 @@ impl App {
         match self.screen {
             Screen::MainMenu => cycle_cursor(&mut self.selected, 1, MenuItem::ALL.len()),
             Screen::Options => cycle_cursor(&mut self.options_cursor, 1, OPTIONS_COUNT),
-            Screen::LoadGame if !self.saved_characters.is_empty() => cycle_cursor(&mut self.load_cursor, 1, self.saved_characters.len()),
+            Screen::LoadGame if !self.saved_characters.is_empty() => {
+                cycle_cursor(&mut self.load_cursor, 1, self.saved_characters.len())
+            }
             Screen::Town => cycle_cursor(&mut self.town_cursor, 1, TownAction::ALL.len()),
             Screen::Explore => cycle_cursor(&mut self.explore_cursor, 1, AreaId::ALL.len()),
             Screen::CharacterSheet => self.character_cursor += 1,
@@ -411,10 +487,16 @@ impl App {
             Screen::Quests => cycle_cursor(&mut self.quest_cursor, 1, QuestId::ALL.len()),
             Screen::Shop => self.shop_cursor += 1,
             Screen::CharacterCreation => match self.creation.step {
-                CreationStep::Race => cycle_cursor(&mut self.creation.race_cursor, 1, Race::ALL.len()),
-                CreationStep::Class => cycle_cursor(&mut self.creation.class_cursor, 1, Class::ALL.len()),
+                CreationStep::Race => {
+                    cycle_cursor(&mut self.creation.race_cursor, 1, Race::ALL.len())
+                }
+                CreationStep::Class => {
+                    cycle_cursor(&mut self.creation.class_cursor, 1, Class::ALL.len())
+                }
                 CreationStep::Stats => cycle_cursor(&mut self.creation.stat_cursor, 1, 6),
-                CreationStep::Gear => cycle_cursor(&mut self.creation.gear_cursor, 1, GearPackage::ALL.len()),
+                CreationStep::Gear => {
+                    cycle_cursor(&mut self.creation.gear_cursor, 1, GearPackage::ALL.len())
+                }
                 _ => {}
             },
             _ => {}
@@ -461,7 +543,8 @@ impl App {
                     let id = db::save_character(&self.pool, &self.creation).await?;
                     self.load_session(id).await?;
                     self.screen = Screen::Town;
-                    self.status_message = Some("A new adventurer arrives in Hearthmere.".to_string());
+                    self.status_message =
+                        Some("A new adventurer arrives in Hearthmere.".to_string());
                 } else {
                     self.creation.step = self.creation.step.next();
                 }
@@ -484,6 +567,9 @@ impl App {
             },
             Screen::Inventory => self.use_inventory_item().await?,
             Screen::Equipment => self.unequip_item().await?,
+            Screen::CharacterSheet if self.character_tab == CharacterTab::Proficiencies => {
+                self.train_selected_proficiency().await?
+            }
             _ => {}
         }
         Ok(())
@@ -503,7 +589,13 @@ impl App {
                 }
             }
             Screen::Dialogue => self.screen = self.dialogue_return,
-            Screen::Explore | Screen::CharacterSheet | Screen::Inventory | Screen::Equipment | Screen::Quests | Screen::Shop | Screen::Combat => {
+            Screen::Explore
+            | Screen::CharacterSheet
+            | Screen::Inventory
+            | Screen::Equipment
+            | Screen::Quests
+            | Screen::Shop
+            | Screen::Combat => {
                 self.screen = Screen::Town;
                 self.combat = None;
             }
@@ -519,20 +611,33 @@ impl App {
             0 => self.settings.sound_effects = !self.settings.sound_effects,
             1 => {
                 if dir > 0 {
-                    self.settings.music_volume = self.settings.music_volume.saturating_add(10).min(100);
+                    self.settings.music_volume =
+                        self.settings.music_volume.saturating_add(10).min(100);
                 } else {
                     self.settings.music_volume = self.settings.music_volume.saturating_sub(10);
                 }
             }
             2 => {
-                self.settings.font_size = if dir > 0 { self.settings.font_size.cycle_next() } else { self.settings.font_size.cycle_prev() };
+                self.settings.font_size = if dir > 0 {
+                    self.settings.font_size.cycle_next()
+                } else {
+                    self.settings.font_size.cycle_prev()
+                };
             }
             3 => {
-                self.settings.color_theme = if dir > 0 { self.settings.color_theme.cycle_next() } else { self.settings.color_theme.cycle_prev() };
+                self.settings.color_theme = if dir > 0 {
+                    self.settings.color_theme.cycle_next()
+                } else {
+                    self.settings.color_theme.cycle_prev()
+                };
             }
             4 => self.settings.show_hints = !self.settings.show_hints,
             5 => {
-                self.settings.difficulty = if dir > 0 { self.settings.difficulty.cycle_next() } else { self.settings.difficulty.cycle_prev() };
+                self.settings.difficulty = if dir > 0 {
+                    self.settings.difficulty.cycle_next()
+                } else {
+                    self.settings.difficulty.cycle_prev()
+                };
             }
             _ => {}
         }
@@ -556,7 +661,9 @@ impl App {
     }
 
     async fn open_inventory(&mut self) -> color_eyre::Result<()> {
-        let Some(ch) = &self.active_character else { return Ok(()); };
+        let Some(ch) = &self.active_character else {
+            return Ok(());
+        };
         self.inventory.items = db::load_inventory(&self.pool, ch.id).await?;
         self.inventory.cursor = 0;
         self.inventory.last_use_message = None;
@@ -565,7 +672,9 @@ impl App {
     }
 
     async fn open_equipment(&mut self) -> color_eyre::Result<()> {
-        let Some(ch) = &self.active_character else { return Ok(()); };
+        let Some(ch) = &self.active_character else {
+            return Ok(());
+        };
         self.equipment = db::load_equipment(&self.pool, ch.id).await?;
         self.equipment_cursor = 0;
         self.status_message = None;
@@ -574,7 +683,9 @@ impl App {
     }
 
     async fn open_shop(&mut self) -> color_eyre::Result<()> {
-        let Some(ch) = &self.active_character else { return Ok(()); };
+        let Some(ch) = &self.active_character else {
+            return Ok(());
+        };
         self.inventory.items = db::load_inventory(&self.pool, ch.id).await?;
         self.vendor_cursor = 0;
         self.shop_cursor = 0;
@@ -584,7 +695,9 @@ impl App {
     }
 
     async fn rest_at_inn(&mut self) -> color_eyre::Result<()> {
-        let Some(ch) = self.active_character.as_mut() else { return Ok(()); };
+        let Some(ch) = self.active_character.as_mut() else {
+            return Ok(());
+        };
         let cost = if ch.level <= 2 { 0 } else { 12 };
         if ch.gold < cost {
             self.status_message = Some("You cannot afford a room tonight.".to_string());
@@ -595,6 +708,8 @@ impl App {
         ch.resources.mana = ch.resources.max_mana;
         ch.resources.stamina = ch.resources.max_stamina;
         db::save_character_state(&self.pool, ch).await?;
+        self.world_state.advance_time(8);
+        db::save_world_state(&self.pool, ch.id, &self.world_state).await?;
         self.status_message = Some(if cost == 0 {
             "The innkeeper gives you your first night free.".to_string()
         } else {
@@ -604,18 +719,32 @@ impl App {
     }
 
     async fn use_inventory_item(&mut self) -> color_eyre::Result<()> {
-        let Some(item) = self.inventory.selected().cloned() else { return Ok(()); };
-        let Some(def) = item.def() else { return Ok(()); };
+        let Some(item) = self.inventory.selected().cloned() else {
+            return Ok(());
+        };
+        let Some(def) = item.def() else {
+            return Ok(());
+        };
         if !def.is_usable() {
-            self.inventory.last_use_message = Some(format!("{} cannot be used directly.", def.name));
+            self.inventory.last_use_message =
+                Some(format!("{} cannot be used directly.", def.name));
             return Ok(());
         }
-        let Some(ch) = self.active_character.as_mut() else { return Ok(()); };
+        let Some(ch) = self.active_character.as_mut() else {
+            return Ok(());
+        };
         for effect in def.effects {
             match effect {
-                ItemEffect::HealHp(amount) => ch.resources.hp = (ch.resources.hp + amount).min(ch.resources.max_hp),
-                ItemEffect::RestoreMana(amount) => ch.resources.mana = (ch.resources.mana + amount).min(ch.resources.max_mana),
-                ItemEffect::RestoreStamina(amount) => ch.resources.stamina = (ch.resources.stamina + amount).min(ch.resources.max_stamina),
+                ItemEffect::HealHp(amount) => {
+                    ch.resources.hp = (ch.resources.hp + amount).min(ch.resources.max_hp)
+                }
+                ItemEffect::RestoreMana(amount) => {
+                    ch.resources.mana = (ch.resources.mana + amount).min(ch.resources.max_mana)
+                }
+                ItemEffect::RestoreStamina(amount) => {
+                    ch.resources.stamina =
+                        (ch.resources.stamina + amount).min(ch.resources.max_stamina)
+                }
                 ItemEffect::CurePoison => {}
                 ItemEffect::ApplyGuard(_) => {}
             }
@@ -629,13 +758,19 @@ impl App {
     }
 
     async fn equip_selected_item(&mut self) -> color_eyre::Result<()> {
-        let Some(item) = self.inventory.selected().cloned() else { return Ok(()); };
-        let Some(def) = item.def() else { return Ok(()); };
+        let Some(item) = self.inventory.selected().cloned() else {
+            return Ok(());
+        };
+        let Some(def) = item.def() else {
+            return Ok(());
+        };
         let Some(slot) = def.equip_slot else {
             self.inventory.last_use_message = Some(format!("{} cannot be equipped.", def.name));
             return Ok(());
         };
-        let Some(ch) = &self.active_character else { return Ok(()); };
+        let Some(ch) = &self.active_character else {
+            return Ok(());
+        };
         if let Some(current) = self.equipment.get_slot(slot).map(|it| it.to_string()) {
             db::add_item(&self.pool, ch.id, &current, 1).await?;
         }
@@ -649,7 +784,9 @@ impl App {
     }
 
     async fn unequip_item(&mut self) -> color_eyre::Result<()> {
-        let Some(ch) = &self.active_character else { return Ok(()); };
+        let Some(ch) = &self.active_character else {
+            return Ok(());
+        };
         let slot = EquipSlot::ALL[self.equipment_cursor];
         let Some(item_type) = self.equipment.get_slot(slot).map(|it| it.to_string()) else {
             self.status_message = Some("Nothing is equipped in that slot.".to_string());
@@ -658,7 +795,10 @@ impl App {
         db::unequip_item(&self.pool, ch.id, slot).await?;
         db::add_item(&self.pool, ch.id, &item_type, 1).await?;
         self.equipment = db::load_equipment(&self.pool, ch.id).await?;
-        self.status_message = Some(format!("Unequipped {}.", find_def(&item_type).map(|def| def.name).unwrap_or("item")));
+        self.status_message = Some(format!(
+            "Unequipped {}.",
+            find_def(&item_type).map(|def| def.name).unwrap_or("item")
+        ));
         Ok(())
     }
 
@@ -673,11 +813,20 @@ impl App {
     }
 
     async fn shop_transaction(&mut self) -> color_eyre::Result<()> {
-        let Some(ch) = self.active_character.as_mut() else { return Ok(()); };
+        let Some(ch) = self.active_character.as_mut() else {
+            return Ok(());
+        };
         if self.shop_buy_mode {
             let vendor = vendor_def(VendorId::ALL[self.vendor_cursor]);
-            let Some(entry) = vendor.inventory.get(self.shop_cursor.min(vendor.inventory.len().saturating_sub(1))) else { return Ok(()); };
-            let Some(def) = find_def(entry.item_type) else { return Ok(()); };
+            let Some(entry) = vendor.inventory.get(
+                self.shop_cursor
+                    .min(vendor.inventory.len().saturating_sub(1)),
+            ) else {
+                return Ok(());
+            };
+            let Some(def) = find_def(entry.item_type) else {
+                return Ok(());
+            };
             if ch.gold < def.base_value {
                 self.status_message = Some("You do not have enough gold.".to_string());
                 return Ok(());
@@ -689,8 +838,20 @@ impl App {
             self.status_message = Some(format!("Bought {} for {} gold.", def.name, def.base_value));
         } else {
             self.inventory.items = db::load_inventory(&self.pool, ch.id).await?;
-            let Some(item) = self.inventory.items.get(self.shop_cursor.min(self.inventory.items.len().saturating_sub(1))).cloned() else { return Ok(()); };
-            let Some(def) = item.def() else { return Ok(()); };
+            let Some(item) = self
+                .inventory
+                .items
+                .get(
+                    self.shop_cursor
+                        .min(self.inventory.items.len().saturating_sub(1)),
+                )
+                .cloned()
+            else {
+                return Ok(());
+            };
+            let Some(def) = item.def() else {
+                return Ok(());
+            };
             if def.base_value <= 0 {
                 self.status_message = Some("That item has no market value.".to_string());
                 return Ok(());
@@ -706,7 +867,9 @@ impl App {
     }
 
     async fn accept_selected_quest(&mut self) -> color_eyre::Result<()> {
-        let Some(ch) = &self.active_character else { return Ok(()); };
+        let Some(ch) = &self.active_character else {
+            return Ok(());
+        };
         let quest_id = QuestId::ALL[self.quest_cursor];
         if self.world_state.has_completed(quest_id) {
             self.status_message = Some("That quest is already complete.".to_string());
@@ -717,7 +880,10 @@ impl App {
             return Ok(());
         }
         db::save_world_state(&self.pool, ch.id, &self.world_state).await?;
-        self.status_message = Some(format!("Accepted {}.", quest_def(quest_id.id()).map(|q| q.name).unwrap_or("quest")));
+        self.status_message = Some(format!(
+            "Accepted {}.",
+            quest_def(quest_id.id()).map(|q| q.name).unwrap_or("quest")
+        ));
         Ok(())
     }
 
@@ -727,6 +893,7 @@ impl App {
             self.status_message = Some("That route is not yet safe enough to travel.".to_string());
             return Ok(());
         }
+        self.world_state.advance_time(6);
         self.world_state.current_area = Some(area.id().to_string());
         self.apply_area_visit(area).await?;
 
@@ -736,13 +903,16 @@ impl App {
             let encounter_id = area.encounters[rng.random_range(0..area.encounters.len())];
             self.start_combat(encounter_id).await?;
         } else {
-            let Some(ch) = &self.active_character else { return Ok(()); };
+            let Some(ch) = &self.active_character else {
+                return Ok(());
+            };
             db::add_item(&self.pool, ch.id, "ration", 1).await?;
             self.open_dialog(
                 area.name,
                 vec![
                     area.event_text.to_string(),
-                    "You secure supplies and withdraw before the deeper threats close in.".to_string(),
+                    "You secure supplies and withdraw before the deeper threats close in."
+                        .to_string(),
                     "Ration x1 added to your pack.".to_string(),
                 ],
                 Screen::Town,
@@ -751,8 +921,98 @@ impl App {
         Ok(())
     }
 
+    async fn train_selected_proficiency(&mut self) -> color_eyre::Result<()> {
+        if let Some(training) = &self.active_training {
+            self.status_message = Some(format!(
+                "You are already studying {}. Wait for the current session to finish.",
+                training.skill.name()
+            ));
+            return Ok(());
+        }
+
+        let Some(ch) = self.active_character.as_mut() else {
+            return Ok(());
+        };
+        let skill_idx = self
+            .character_cursor
+            .min(ch.proficiencies.len().saturating_sub(1));
+        let Some(skill) = ch.proficiencies.get_mut(skill_idx) else {
+            return Ok(());
+        };
+        if skill.level() >= MAX_PROFICIENCY_LEVEL {
+            self.status_message = Some(format!("{} is already mastered.", skill.kind.name()));
+            return Ok(());
+        }
+
+        let plan = study_plan(skill.kind, skill.xp, &ch.stats);
+        self.recent_training_level_up = None;
+        self.active_training = Some(ActiveTraining {
+            skill: skill.kind,
+            total_ticks: (plan.hours.max(1) as u32) * TRAINING_TICKS_PER_HOUR,
+            elapsed_ticks: 0,
+            hours: plan.hours,
+            success_chance: plan.success_chance,
+            success_xp: plan.success_xp,
+            failure_xp: plan.failure_xp,
+        });
+        self.status_message = Some(format!(
+            "You begin studying {}. Progress will complete over time.",
+            skill.kind.name(),
+        ));
+        Ok(())
+    }
+
+    async fn resolve_training_completion(&mut self) -> color_eyre::Result<()> {
+        let Some(training) = self.active_training.take() else {
+            return Ok(());
+        };
+        let Some(ch) = self.active_character.as_mut() else {
+            return Ok(());
+        };
+        let Some(skill) = ch
+            .proficiencies
+            .iter_mut()
+            .find(|skill| skill.kind == training.skill)
+        else {
+            return Ok(());
+        };
+
+        let roll = rand::rng().random_range(1..=100);
+        let success = roll <= training.success_chance;
+        let xp_gain = if success {
+            training.success_xp
+        } else {
+            training.failure_xp
+        };
+        let before_level = skill.level();
+        skill.xp += xp_gain;
+        let after_level = skill.level();
+        self.world_state.advance_time(training.hours);
+
+        db::save_proficiency_xp(&self.pool, ch.id, skill.kind, skill.xp).await?;
+        db::save_world_state(&self.pool, ch.id, &self.world_state).await?;
+
+        let result = if success { "Success" } else { "Setback" };
+        let mut message = format!(
+            "{result}: {} training finished after {}h. Roll {} vs {}%, gained {} XP.",
+            skill.kind.name(),
+            training.hours,
+            roll,
+            training.success_chance,
+            xp_gain
+        );
+        if after_level > before_level {
+            self.recent_training_level_up = Some((skill.kind, after_level));
+            message.push_str(&format!(" Rank up to {}.", after_level));
+        }
+        self.status_message = Some(message);
+        Ok(())
+    }
+
     async fn start_combat(&mut self, encounter_id: &str) -> color_eyre::Result<()> {
-        let Some(ch) = &self.active_character else { return Ok(()); };
+        let Some(ch) = &self.active_character else {
+            return Ok(());
+        };
         self.inventory.items = db::load_inventory(&self.pool, ch.id).await?;
         self.equipment = db::load_equipment(&self.pool, ch.id).await?;
         let mut combat = CombatState::from_character_and_encounter(
@@ -790,7 +1050,12 @@ impl App {
     }
 
     async fn handle_combat_action(&mut self) -> color_eyre::Result<()> {
-        let action = match self.combat.as_ref().map(|combat| combat.action_tab).unwrap_or(ActionTab::Weapon) {
+        let action = match self
+            .combat
+            .as_ref()
+            .map(|combat| combat.action_tab)
+            .unwrap_or(ActionTab::Weapon)
+        {
             ActionTab::Weapon => PlayerAction::UseWeapon,
             ActionTab::Ability => PlayerAction::UseAbility,
             ActionTab::Item => PlayerAction::UseItem,
@@ -798,8 +1063,13 @@ impl App {
         self.handle_explicit_combat_action(action).await
     }
 
-    async fn handle_explicit_combat_action(&mut self, action: PlayerAction) -> color_eyre::Result<()> {
-        let Some(combat) = self.combat.as_mut() else { return Ok(()); };
+    async fn handle_explicit_combat_action(
+        &mut self,
+        action: PlayerAction,
+    ) -> color_eyre::Result<()> {
+        let Some(combat) = self.combat.as_mut() else {
+            return Ok(());
+        };
         let outcome = combat.resolve_player_action(action);
         if !matches!(outcome, CombatOutcome::Ongoing) {
             self.finish_combat(outcome).await?;
@@ -815,13 +1085,19 @@ impl App {
         };
         match outcome {
             CombatOutcome::Won(reward) => {
-                character.resources = self.combat.as_ref().map(|combat| combat.player.resources).unwrap_or(character.resources);
+                character.resources = self
+                    .combat
+                    .as_ref()
+                    .map(|combat| combat.player.resources)
+                    .unwrap_or(character.resources);
                 character.gold += reward.gold;
                 let level_up = character.apply_xp_gain(reward.xp);
                 for (item, qty) in &reward.drops {
                     db::add_item(&self.pool, character.id, item, *qty).await?;
                 }
-                let quest_lines = self.apply_combat_rewards_to_world(&mut character, &reward).await?;
+                let quest_lines = self
+                    .apply_combat_rewards_to_world(&mut character, &reward)
+                    .await?;
                 db::save_character_state(&self.pool, &character).await?;
                 self.active_character = Some(character.clone());
                 self.inventory.items = db::load_inventory(&self.pool, character.id).await?;
@@ -843,7 +1119,17 @@ impl App {
                             ));
                         }
                         if !level_up.new_ability_ids.is_empty() {
-                            lines.push(format!("New abilities unlocked: {}", level_up.new_ability_ids.join(", ")));
+                            let ability_names = level_up
+                                .new_ability_ids
+                                .iter()
+                                .map(|ability_id| {
+                                    ability_def(ability_id)
+                                        .map(|def| def.name)
+                                        .unwrap_or(ability_id.as_str())
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            lines.push(format!("New abilities unlocked: {ability_names}"));
                         }
                         lines.extend(quest_lines);
                         lines
@@ -876,7 +1162,10 @@ impl App {
                 self.combat = None;
                 self.open_dialog(
                     "Retreat",
-                    vec!["You break away and return to town before the fight collapses around you.".to_string()],
+                    vec![
+                        "You break away and return to town before the fight collapses around you."
+                            .to_string(),
+                    ],
                     Screen::Town,
                 );
             }
@@ -892,14 +1181,25 @@ impl App {
             AreaId::AshenBarrow => {}
         }
 
-        let active_ids = self.world_state.active_quests.iter().map(|q| q.quest_id.clone()).collect::<Vec<_>>();
+        let active_ids = self
+            .world_state
+            .active_quests
+            .iter()
+            .map(|q| q.quest_id.clone())
+            .collect::<Vec<_>>();
         for quest_id in active_ids {
-            let Some(def) = quest_def(&quest_id) else { continue };
-            let Some(progress) = self.world_state.active_quest_mut(def.id) else { continue };
+            let Some(def) = quest_def(&quest_id) else {
+                continue;
+            };
+            let Some(progress) = self.world_state.active_quest_mut(def.id) else {
+                continue;
+            };
             if progress.completed || progress.objective_index >= def.objectives.len() {
                 continue;
             }
-            if let ObjectiveKind::VisitArea { area: needed } = &def.objectives[progress.objective_index].kind {
+            if let ObjectiveKind::VisitArea { area: needed } =
+                &def.objectives[progress.objective_index].kind
+            {
                 if *needed == area {
                     progress.progress = 1;
                     progress.objective_index += 1;
@@ -911,21 +1211,44 @@ impl App {
         Ok(())
     }
 
-    async fn apply_combat_rewards_to_world(&mut self, character: &mut SavedCharacter, reward: &crate::combat::CombatReward) -> color_eyre::Result<Vec<String>> {
+    async fn apply_combat_rewards_to_world(
+        &mut self,
+        character: &mut SavedCharacter,
+        reward: &crate::combat::CombatReward,
+    ) -> color_eyre::Result<Vec<String>> {
         let mut lines = vec![];
-        let active_ids = self.world_state.active_quests.iter().map(|q| q.quest_id.clone()).collect::<Vec<_>>();
+        let active_ids = self
+            .world_state
+            .active_quests
+            .iter()
+            .map(|q| q.quest_id.clone())
+            .collect::<Vec<_>>();
         for quest_id in active_ids {
-            let Some(def) = quest_def(&quest_id) else { continue };
-            let Some(progress) = self.world_state.active_quest_mut(def.id) else { continue };
+            let Some(def) = quest_def(&quest_id) else {
+                continue;
+            };
+            let Some(progress) = self.world_state.active_quest_mut(def.id) else {
+                continue;
+            };
             if progress.completed || progress.objective_index >= def.objectives.len() {
                 continue;
             }
             match &def.objectives[progress.objective_index].kind {
                 ObjectiveKind::KillFamily { family, count } => {
-                    let gained = reward.defeated_families.iter().filter(|it| it.as_str() == *family).count() as i32;
+                    let gained = reward
+                        .defeated_families
+                        .iter()
+                        .filter(|it| it.as_str() == *family)
+                        .count() as i32;
                     if gained > 0 {
                         progress.progress += gained;
-                        lines.push(format!("{} progress: {}/{} {}", def.name, progress.progress.min(*count), count, family));
+                        lines.push(format!(
+                            "{} progress: {}/{} {}",
+                            def.name,
+                            progress.progress.min(*count),
+                            count,
+                            family
+                        ));
                         if progress.progress >= *count {
                             progress.objective_index += 1;
                             progress.progress = 0;
@@ -967,11 +1290,20 @@ impl App {
         Ok(lines)
     }
 
-    async fn complete_ready_quests(&mut self) -> color_eyre::Result<Vec<(i32, i32, Option<String>, i32, String)>> {
+    async fn complete_ready_quests(
+        &mut self,
+    ) -> color_eyre::Result<Vec<(i32, i32, Option<String>, i32, String)>> {
         let mut rewards = vec![];
-        let ids = self.world_state.active_quests.iter().map(|q| q.quest_id.clone()).collect::<Vec<_>>();
+        let ids = self
+            .world_state
+            .active_quests
+            .iter()
+            .map(|q| q.quest_id.clone())
+            .collect::<Vec<_>>();
         for quest_id in ids {
-            let Some(def) = quest_def(&quest_id) else { continue };
+            let Some(def) = quest_def(&quest_id) else {
+                continue;
+            };
             let complete_now = self
                 .world_state
                 .active_quest(def.id)
@@ -980,8 +1312,12 @@ impl App {
             if !complete_now {
                 continue;
             }
-            self.world_state.completed_quests.push(def.id.id().to_string());
-            self.world_state.active_quests.retain(|progress| progress.quest_id != def.id.id());
+            self.world_state
+                .completed_quests
+                .push(def.id.id().to_string());
+            self.world_state
+                .active_quests
+                .retain(|progress| progress.quest_id != def.id.id());
             rewards.push((
                 def.rewards.xp,
                 def.rewards.gold,
@@ -994,7 +1330,10 @@ impl App {
     }
 
     fn change_character_tab(&mut self, dir: i32) {
-        let idx = CharacterTab::ALL.iter().position(|tab| *tab == self.character_tab).unwrap_or(0);
+        let idx = CharacterTab::ALL
+            .iter()
+            .position(|tab| *tab == self.character_tab)
+            .unwrap_or(0);
         let next = (idx as i32 + dir).rem_euclid(CharacterTab::ALL.len() as i32) as usize;
         self.character_tab = CharacterTab::ALL[next];
         self.character_cursor = 0;

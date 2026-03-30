@@ -1,5 +1,8 @@
 use crate::character::{Class, MajorSkill, ResourcePool, SavedCharacter};
-use crate::inventory::{find_def, AttackOption, Equipment, InventoryItem, ItemEffect, ItemRarity, LootTableEntry, WeaponKind};
+use crate::inventory::{
+    AttackOption, Equipment, InventoryItem, ItemEffect, ItemRarity, LootTableEntry, WeaponKind,
+    find_def,
+};
 use rand::{Rng, RngExt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,14 +132,43 @@ pub struct EncounterDef {
 
 #[derive(Debug, Clone)]
 pub enum CombatLogEvent {
-    TurnStart { actor: String },
-    AttackResolved { actor: String, target: String, hit: bool, amount: i32, detail: String },
-    AbilityUsed { actor: String, ability: String, detail: String },
-    StatusApplied { actor: String, target: String, status: StatusKind, duration: i32 },
-    StatusExpired { actor: String, status: StatusKind },
-    ResourceChanged { actor: String, label: &'static str, amount: i32 },
-    LootGained { item_name: String, qty: i32 },
-    QuestCredit { detail: String },
+    TurnStart {
+        actor: String,
+    },
+    AttackResolved {
+        actor: String,
+        target: String,
+        hit: bool,
+        amount: i32,
+        detail: String,
+    },
+    AbilityUsed {
+        actor: String,
+        ability: String,
+        detail: String,
+    },
+    StatusApplied {
+        actor: String,
+        target: String,
+        status: StatusKind,
+        duration: i32,
+    },
+    StatusExpired {
+        actor: String,
+        status: StatusKind,
+    },
+    ResourceChanged {
+        actor: String,
+        label: &'static str,
+        amount: i32,
+    },
+    LootGained {
+        item_name: String,
+        qty: i32,
+    },
+    QuestCredit {
+        detail: String,
+    },
     Info(String),
 }
 
@@ -144,19 +176,43 @@ impl CombatLogEvent {
     pub fn to_line(&self) -> String {
         match self {
             Self::TurnStart { actor } => format!("{actor} takes the field."),
-            Self::AttackResolved { actor, target, hit, amount, detail } => {
+            Self::AttackResolved {
+                actor,
+                target,
+                hit,
+                amount,
+                detail,
+            } => {
                 if *hit {
                     format!("{actor} hits {target} for {amount}. {detail}")
                 } else {
                     format!("{actor} misses {target}. {detail}")
                 }
             }
-            Self::AbilityUsed { actor, ability, detail } => format!("{actor} uses {ability}. {detail}"),
-            Self::StatusApplied { actor, target, status, duration } => {
-                format!("{actor} inflicts {} on {target} for {duration} turns.", status.label())
+            Self::AbilityUsed {
+                actor,
+                ability,
+                detail,
+            } => format!("{actor} uses {ability}. {detail}"),
+            Self::StatusApplied {
+                actor,
+                target,
+                status,
+                duration,
+            } => {
+                format!(
+                    "{actor} inflicts {} on {target} for {duration} turns.",
+                    status.label()
+                )
             }
-            Self::StatusExpired { actor, status } => format!("{} fades from {actor}.", status.label()),
-            Self::ResourceChanged { actor, label, amount } => format!("{actor} restores {amount} {label}."),
+            Self::StatusExpired { actor, status } => {
+                format!("{} fades from {actor}.", status.label())
+            }
+            Self::ResourceChanged {
+                actor,
+                label,
+                amount,
+            } => format!("{actor} restores {amount} {label}."),
             Self::LootGained { item_name, qty } => format!("Loot gained: {item_name} x{qty}."),
             Self::QuestCredit { detail } => detail.clone(),
             Self::Info(text) => text.clone(),
@@ -294,7 +350,11 @@ impl CombatState {
             resources: character.resources,
             defense: derived.defense,
             initiative: derived.initiative,
-            attack_bonus: eq_stats.attack_bonus + character.stats.modifier(MajorSkill::Strength).max(character.stats.modifier(MajorSkill::Dexterity)),
+            attack_bonus: eq_stats.attack_bonus
+                + character
+                    .stats
+                    .modifier(MajorSkill::Strength)
+                    .max(character.stats.modifier(MajorSkill::Dexterity)),
             spell_power: derived.spell_power,
             crit_chance: derived.crit_chance,
             dodge: derived.dodge,
@@ -335,7 +395,11 @@ impl CombatState {
                     ability_ids: def.ability_ids.iter().map(|id| id.to_string()).collect(),
                     statuses: vec![],
                     role: Some(def.role),
-                    cooldowns: def.ability_ids.iter().map(|id| (id.to_string(), 0)).collect(),
+                    cooldowns: def
+                        .ability_ids
+                        .iter()
+                        .map(|id| (id.to_string(), 0))
+                        .collect(),
                 }
             })
             .collect::<Vec<_>>();
@@ -344,16 +408,20 @@ impl CombatState {
         for idx in 0..enemies.len() {
             initiative.push(TurnRef::Enemy(idx));
         }
-        initiative.sort_by_key(|turn_ref| std::cmp::Reverse(match turn_ref {
-            TurnRef::Player => player.initiative,
-            TurnRef::Enemy(idx) => enemies[*idx].initiative,
-        }));
+        initiative.sort_by_key(|turn_ref| {
+            std::cmp::Reverse(match turn_ref {
+                TurnRef::Player => player.initiative,
+                TurnRef::Enemy(idx) => enemies[*idx].initiative,
+            })
+        });
 
         let consumables = inventory
             .iter()
             .filter(|item| {
                 item.def()
-                    .map(|def| def.kind == crate::inventory::ItemKind::Consumable && item.quantity > 0)
+                    .map(|def| {
+                        def.kind == crate::inventory::ItemKind::Consumable && item.quantity > 0
+                    })
                     .unwrap_or(false)
             })
             .cloned()
@@ -361,7 +429,11 @@ impl CombatState {
 
         Self {
             encounter_name: encounter.name.to_string(),
-            environment_tags: encounter.environment_tags.iter().map(|tag| (*tag).to_string()).collect(),
+            environment_tags: encounter
+                .environment_tags
+                .iter()
+                .map(|tag| (*tag).to_string())
+                .collect(),
             player,
             enemies,
             initiative,
@@ -398,7 +470,10 @@ impl CombatState {
     }
 
     pub fn selected_weapon_attack(&self) -> Option<AttackOption> {
-        self.player.weapon_attacks.get(self.selected_weapon_attack).copied()
+        self.player
+            .weapon_attacks
+            .get(self.selected_weapon_attack)
+            .copied()
     }
 
     pub fn selected_ability_def(&self) -> Option<&'static AbilityDef> {
@@ -423,7 +498,10 @@ impl CombatState {
         if alive.is_empty() {
             return;
         }
-        let current_pos = alive.iter().position(|idx| *idx == self.selected_target).unwrap_or(0);
+        let current_pos = alive
+            .iter()
+            .position(|idx| *idx == self.selected_target)
+            .unwrap_or(0);
         let len = alive.len() as i32;
         let next = (current_pos as i32 + dir).rem_euclid(len) as usize;
         self.selected_target = alive[next];
@@ -438,7 +516,12 @@ impl CombatState {
         {
             return;
         }
-        if let Some((idx, _)) = self.enemies.iter().enumerate().find(|(_, enemy)| enemy.is_alive()) {
+        if let Some((idx, _)) = self
+            .enemies
+            .iter()
+            .enumerate()
+            .find(|(_, enemy)| enemy.is_alive())
+        {
             self.selected_target = idx;
         }
     }
@@ -472,7 +555,9 @@ impl CombatState {
         let start_len = self.log.len();
         self.tick_statuses_for_player(StatusTiming::TurnStart);
         if self.player.has_status(StatusKind::Stun) {
-            self.log.push(CombatLogEvent::Info("You are stunned and lose the turn.".to_string()));
+            self.log.push(CombatLogEvent::Info(
+                "You are stunned and lose the turn.".to_string(),
+            ));
             return self.finish_player_phase(start_len);
         }
 
@@ -483,19 +568,25 @@ impl CombatState {
             PlayerAction::UseItem => self.resolve_player_item(),
             PlayerAction::Defend => {
                 self.apply_status_to_player(StatusKind::Guard, 1, 4, "Defend");
-                self.log.push(CombatLogEvent::Info("You brace for the next strike.".to_string()));
+                self.log.push(CombatLogEvent::Info(
+                    "You brace for the next strike.".to_string(),
+                ));
             }
             PlayerAction::Flee => {
                 let roll = rng.random_range(1..=20);
                 let dc = 11 + self.enemies.iter().filter(|enemy| enemy.is_alive()).count() as i32;
                 let total = roll + self.player.initiative;
-                self.last_roll_summary = Some(format!("Flee d20={} total={} vs DC {}", roll, total, dc));
+                self.last_roll_summary =
+                    Some(format!("Flee d20={} total={} vs DC {}", roll, total, dc));
                 if total >= dc {
-                    self.log.push(CombatLogEvent::Info("You break away from the encounter.".to_string()));
+                    self.log.push(CombatLogEvent::Info(
+                        "You break away from the encounter.".to_string(),
+                    ));
                     self.update_new_entries(start_len);
                     return CombatOutcome::Fled;
                 }
-                self.log.push(CombatLogEvent::Info("You fail to disengage.".to_string()));
+                self.log
+                    .push(CombatLogEvent::Info("You fail to disengage.".to_string()));
             }
         }
 
@@ -522,7 +613,9 @@ impl CombatState {
 
     fn resolve_player_weapon(&mut self, rng: &mut impl Rng) {
         let Some(attack) = self.selected_weapon_attack() else {
-            self.log.push(CombatLogEvent::Info("No weapon attack is available.".to_string()));
+            self.log.push(CombatLogEvent::Info(
+                "No weapon attack is available.".to_string(),
+            ));
             return;
         };
         self.resolve_attack(
@@ -541,15 +634,22 @@ impl CombatState {
 
     fn resolve_player_ability(&mut self, rng: &mut impl Rng) {
         let Some(ability) = self.selected_ability_def() else {
-            self.log.push(CombatLogEvent::Info("No ability is selected.".to_string()));
+            self.log
+                .push(CombatLogEvent::Info("No ability is selected.".to_string()));
             return;
         };
         if self.cooldown_for_player(ability.id) > 0 {
-            self.log.push(CombatLogEvent::Info(format!("{} is still on cooldown.", ability.name)));
+            self.log.push(CombatLogEvent::Info(format!(
+                "{} is still on cooldown.",
+                ability.name
+            )));
             return;
         }
         if !self.can_pay_cost(ability.resource_kind, ability.cost) {
-            self.log.push(CombatLogEvent::Info(format!("Not enough resource for {}.", ability.name)));
+            self.log.push(CombatLogEvent::Info(format!(
+                "Not enough resource for {}.",
+                ability.name
+            )));
             return;
         }
         self.pay_cost(ability.resource_kind, ability.cost);
@@ -561,7 +661,8 @@ impl CombatState {
         });
         if ability.target == AbilityTarget::SelfTarget {
             if ability.heal_amount > 0 {
-                self.player.resources.hp = (self.player.resources.hp + ability.heal_amount).min(self.player.resources.max_hp);
+                self.player.resources.hp = (self.player.resources.hp + ability.heal_amount)
+                    .min(self.player.resources.max_hp);
                 self.log.push(CombatLogEvent::ResourceChanged {
                     actor: self.player.name.clone(),
                     label: "HP",
@@ -590,18 +691,25 @@ impl CombatState {
 
     fn resolve_player_item(&mut self) {
         if self.free_item_used {
-            self.log.push(CombatLogEvent::Info("You already used a free item this turn.".to_string()));
+            self.log.push(CombatLogEvent::Info(
+                "You already used a free item this turn.".to_string(),
+            ));
             return;
         }
         let Some(item) = self.selected_item().cloned() else {
-            self.log.push(CombatLogEvent::Info("No usable item is selected.".to_string()));
+            self.log.push(CombatLogEvent::Info(
+                "No usable item is selected.".to_string(),
+            ));
             return;
         };
         let Some(def) = item.def() else {
             return;
         };
         if item.quantity <= 0 {
-            self.log.push(CombatLogEvent::Info(format!("You are out of {}.", def.name)));
+            self.log.push(CombatLogEvent::Info(format!(
+                "You are out of {}.",
+                def.name
+            )));
             return;
         }
         for effect in def.effects {
@@ -611,14 +719,17 @@ impl CombatState {
             slot.quantity -= 1;
         }
         self.consumables.retain(|it| it.quantity > 0);
-        self.selected_item = self.selected_item.min(self.consumables.len().saturating_sub(1));
+        self.selected_item = self
+            .selected_item
+            .min(self.consumables.len().saturating_sub(1));
         self.free_item_used = true;
     }
 
     fn apply_item_effect(&mut self, effect: ItemEffect, item_name: &str) {
         match effect {
             ItemEffect::HealHp(amount) => {
-                self.player.resources.hp = (self.player.resources.hp + amount).min(self.player.resources.max_hp);
+                self.player.resources.hp =
+                    (self.player.resources.hp + amount).min(self.player.resources.max_hp);
                 self.log.push(CombatLogEvent::ResourceChanged {
                     actor: self.player.name.clone(),
                     label: "HP",
@@ -626,7 +737,8 @@ impl CombatState {
                 });
             }
             ItemEffect::RestoreMana(amount) => {
-                self.player.resources.mana = (self.player.resources.mana + amount).min(self.player.resources.max_mana);
+                self.player.resources.mana =
+                    (self.player.resources.mana + amount).min(self.player.resources.max_mana);
                 self.log.push(CombatLogEvent::ResourceChanged {
                     actor: self.player.name.clone(),
                     label: "Mana",
@@ -634,7 +746,8 @@ impl CombatState {
                 });
             }
             ItemEffect::RestoreStamina(amount) => {
-                self.player.resources.stamina = (self.player.resources.stamina + amount).min(self.player.resources.max_stamina);
+                self.player.resources.stamina =
+                    (self.player.resources.stamina + amount).min(self.player.resources.max_stamina);
                 self.log.push(CombatLogEvent::ResourceChanged {
                     actor: self.player.name.clone(),
                     label: "Stamina",
@@ -642,8 +755,11 @@ impl CombatState {
                 });
             }
             ItemEffect::CurePoison => {
-                self.player.statuses.retain(|status| status.kind != StatusKind::Poison);
-                self.log.push(CombatLogEvent::Info(format!("{item_name} clears poison.")));
+                self.player
+                    .statuses
+                    .retain(|status| status.kind != StatusKind::Poison);
+                self.log
+                    .push(CombatLogEvent::Info(format!("{item_name} clears poison.")));
             }
             ItemEffect::ApplyGuard(amount) => {
                 self.apply_status_to_player(StatusKind::Guard, 1, amount, item_name);
@@ -673,7 +789,9 @@ impl CombatState {
                     }
                     if self.enemies[idx].has_status(StatusKind::Stun) {
                         let name = self.enemies[idx].name.clone();
-                        self.log.push(CombatLogEvent::Info(format!("{name} is stunned and loses the turn.")));
+                        self.log.push(CombatLogEvent::Info(format!(
+                            "{name} is stunned and loses the turn."
+                        )));
                         self.tick_statuses_for_enemy(idx, StatusTiming::TurnEnd);
                         self.advance_turn();
                         continue;
@@ -693,12 +811,16 @@ impl CombatState {
         if let Some(ability) = chosen_ability {
             self.use_enemy_ability(idx, ability, rng);
         } else {
-            let attack = enemy.weapon_attacks.first().copied().unwrap_or(AttackOption {
-                name: "Strike",
-                accuracy_bonus: enemy.attack_bonus,
-                min_damage: 4,
-                max_damage: 8,
-            });
+            let attack = enemy
+                .weapon_attacks
+                .first()
+                .copied()
+                .unwrap_or(AttackOption {
+                    name: "Strike",
+                    accuracy_bonus: enemy.attack_bonus,
+                    min_damage: 4,
+                    max_damage: 8,
+                });
             self.resolve_enemy_attack(idx, attack, rng);
         }
     }
@@ -711,8 +833,15 @@ impl CombatState {
                 continue;
             }
             match enemy.role.unwrap_or(EnemyRole::Brute) {
-                EnemyRole::Support if ability.heal_amount > 0 && enemy.resources.hp < enemy.resources.max_hp / 2 => return Some(ability),
-                EnemyRole::Caster if ability.damage_type != DamageType::Physical => return Some(ability),
+                EnemyRole::Support
+                    if ability.heal_amount > 0
+                        && enemy.resources.hp < enemy.resources.max_hp / 2 =>
+                {
+                    return Some(ability);
+                }
+                EnemyRole::Caster if ability.damage_type != DamageType::Physical => {
+                    return Some(ability);
+                }
                 EnemyRole::Skirmisher if ability.apply_status.is_some() => return Some(ability),
                 EnemyRole::Brute if ability.damage_min >= 7 => return Some(ability),
                 _ => {}
@@ -723,12 +852,17 @@ impl CombatState {
 
     fn use_enemy_ability(&mut self, idx: usize, ability: &'static AbilityDef, rng: &mut impl Rng) {
         if !self.enemy_can_pay_cost(idx, ability.resource_kind, ability.cost) {
-            let attack = self.enemies[idx].weapon_attacks.first().copied().unwrap_or(AttackOption {
-                name: "Strike",
-                accuracy_bonus: self.enemies[idx].attack_bonus,
-                min_damage: 4,
-                max_damage: 8,
-            });
+            let attack =
+                self.enemies[idx]
+                    .weapon_attacks
+                    .first()
+                    .copied()
+                    .unwrap_or(AttackOption {
+                        name: "Strike",
+                        accuracy_bonus: self.enemies[idx].attack_bonus,
+                        min_damage: 4,
+                        max_damage: 8,
+                    });
             self.resolve_enemy_attack(idx, attack, rng);
             return;
         }
@@ -744,7 +878,8 @@ impl CombatState {
 
         if ability.target == AbilityTarget::SelfTarget {
             if ability.heal_amount > 0 {
-                self.enemies[idx].resources.hp = (self.enemies[idx].resources.hp + ability.heal_amount)
+                self.enemies[idx].resources.hp = (self.enemies[idx].resources.hp
+                    + ability.heal_amount)
                     .min(self.enemies[idx].resources.max_hp);
             }
             if let Some((status, duration, potency)) = ability.self_status {
@@ -753,7 +888,12 @@ impl CombatState {
             return;
         }
 
-        let target_defense = self.player.defense - if self.player.has_status(StatusKind::Weakness) { 1 } else { 0 };
+        let target_defense = self.player.defense
+            - if self.player.has_status(StatusKind::Weakness) {
+                1
+            } else {
+                0
+            };
         let roll = rng.random_range(1..=20);
         let total = roll + self.enemies[idx].attack_bonus + ability.accuracy_bonus;
         let hit = roll != 1 && (roll == 20 || total >= target_defense + self.player_guard_bonus());
@@ -763,7 +903,11 @@ impl CombatState {
         let damage = base_damage.max(0);
         self.last_roll_summary = Some(format!(
             "{} used {}: d20={} total={} vs DEF {}",
-            name, ability.name, roll, total, target_defense + self.player_guard_bonus()
+            name,
+            ability.name,
+            roll,
+            total,
+            target_defense + self.player_guard_bonus()
         ));
         if hit {
             self.player.resources.hp = (self.player.resources.hp - damage).max(0);
@@ -786,7 +930,8 @@ impl CombatState {
         let total = roll + self.enemies[idx].attack_bonus + attack.accuracy_bonus;
         let hit = roll != 1 && (roll == 20 || total >= target_defense);
         let damage = if hit {
-            (rng.random_range(attack.min_damage..=attack.max_damage) - self.player_guard_bonus()).max(0)
+            (rng.random_range(attack.min_damage..=attack.max_damage) - self.player_guard_bonus())
+                .max(0)
         } else {
             0
         };
@@ -794,7 +939,9 @@ impl CombatState {
             self.player.resources.hp = (self.player.resources.hp - damage).max(0);
         }
         let name = self.enemies[idx].name.clone();
-        self.last_roll_summary = Some(format!("{name} d20={roll} total={total} vs DEF {target_defense}"));
+        self.last_roll_summary = Some(format!(
+            "{name} d20={roll} total={total} vs DEF {target_defense}"
+        ));
         self.log.push(CombatLogEvent::AttackResolved {
             actor: name,
             target: self.player.name.clone(),
@@ -818,14 +965,23 @@ impl CombatState {
         rng: &mut impl Rng,
     ) {
         let Some(target) = self.enemies.get(self.selected_target) else {
-            self.log.push(CombatLogEvent::Info("No valid target.".to_string()));
+            self.log
+                .push(CombatLogEvent::Info("No valid target.".to_string()));
             return;
         };
         if !target.is_alive() {
-            self.log.push(CombatLogEvent::Info("That target is already down.".to_string()));
+            self.log.push(CombatLogEvent::Info(
+                "That target is already down.".to_string(),
+            ));
             return;
         }
-        let accuracy = self.player.attack_bonus + accuracy_bonus + if self.player.has_status(StatusKind::Weakness) { -2 } else { 0 };
+        let accuracy = self.player.attack_bonus
+            + accuracy_bonus
+            + if self.player.has_status(StatusKind::Weakness) {
+                -2
+            } else {
+                0
+            };
         let roll = rng.random_range(1..=20);
         let total = roll + accuracy;
         let defense = target.defense;
@@ -866,7 +1022,11 @@ impl CombatState {
             self.auto_select_alive_target();
         }
         self.log.push(CombatLogEvent::AttackResolved {
-            actor: if player_is_actor { self.player.name.clone() } else { "Enemy".to_string() },
+            actor: if player_is_actor {
+                self.player.name.clone()
+            } else {
+                "Enemy".to_string()
+            },
             target: target_name,
             hit,
             amount: damage,
@@ -893,7 +1053,11 @@ impl CombatState {
         }
     }
 
-    fn tick_statuses(target: &mut CombatantSnapshot, timing: StatusTiming, log: &mut Vec<CombatLogEvent>) {
+    fn tick_statuses(
+        target: &mut CombatantSnapshot,
+        timing: StatusTiming,
+        log: &mut Vec<CombatLogEvent>,
+    ) {
         let mut expired = vec![];
         for (idx, status) in target.statuses.iter_mut().enumerate() {
             match (status.kind, timing) {
@@ -910,7 +1074,8 @@ impl CombatState {
                     });
                 }
                 (StatusKind::Regen, StatusTiming::TurnStart) => {
-                    target.resources.hp = (target.resources.hp + status.potency).min(target.resources.max_hp);
+                    target.resources.hp =
+                        (target.resources.hp + status.potency).min(target.resources.max_hp);
                     log.push(CombatLogEvent::ResourceChanged {
                         actor: target.name.clone(),
                         label: "HP",
@@ -935,7 +1100,13 @@ impl CombatState {
         }
     }
 
-    fn apply_status_to_player(&mut self, status: StatusKind, duration: i32, potency: i32, source_name: &str) {
+    fn apply_status_to_player(
+        &mut self,
+        status: StatusKind,
+        duration: i32,
+        potency: i32,
+        source_name: &str,
+    ) {
         self.player.statuses.push(StatusEffect {
             kind: status,
             duration,
@@ -951,7 +1122,14 @@ impl CombatState {
         });
     }
 
-    fn apply_status_to_enemy(&mut self, idx: usize, status: StatusKind, duration: i32, potency: i32, source_name: &str) {
+    fn apply_status_to_enemy(
+        &mut self,
+        idx: usize,
+        status: StatusKind,
+        duration: i32,
+        potency: i32,
+        source_name: &str,
+    ) {
         if let Some(enemy) = self.enemies.get_mut(idx) {
             enemy.statuses.push(StatusEffect {
                 kind: status,
@@ -979,13 +1157,22 @@ impl CombatState {
 
     fn pay_cost(&mut self, resource_kind: Option<ResourceKind>, cost: i32) {
         match resource_kind {
-            Some(ResourceKind::Mana) => self.player.resources.mana = (self.player.resources.mana - cost).max(0),
-            Some(ResourceKind::Stamina) => self.player.resources.stamina = (self.player.resources.stamina - cost).max(0),
+            Some(ResourceKind::Mana) => {
+                self.player.resources.mana = (self.player.resources.mana - cost).max(0)
+            }
+            Some(ResourceKind::Stamina) => {
+                self.player.resources.stamina = (self.player.resources.stamina - cost).max(0)
+            }
             None => {}
         }
     }
 
-    fn enemy_can_pay_cost(&self, idx: usize, resource_kind: Option<ResourceKind>, cost: i32) -> bool {
+    fn enemy_can_pay_cost(
+        &self,
+        idx: usize,
+        resource_kind: Option<ResourceKind>,
+        cost: i32,
+    ) -> bool {
         let Some(enemy) = self.enemies.get(idx) else {
             return false;
         };
@@ -999,8 +1186,12 @@ impl CombatState {
     fn pay_enemy_cost(&mut self, idx: usize, resource_kind: Option<ResourceKind>, cost: i32) {
         if let Some(enemy) = self.enemies.get_mut(idx) {
             match resource_kind {
-                Some(ResourceKind::Mana) => enemy.resources.mana = (enemy.resources.mana - cost).max(0),
-                Some(ResourceKind::Stamina) => enemy.resources.stamina = (enemy.resources.stamina - cost).max(0),
+                Some(ResourceKind::Mana) => {
+                    enemy.resources.mana = (enemy.resources.mana - cost).max(0)
+                }
+                Some(ResourceKind::Stamina) => {
+                    enemy.resources.stamina = (enemy.resources.stamina - cost).max(0)
+                }
                 None => {}
             }
         }
@@ -1016,7 +1207,12 @@ impl CombatState {
     }
 
     fn set_player_cooldown(&mut self, ability_id: &str, cooldown: i32) {
-        if let Some(entry) = self.player.cooldowns.iter_mut().find(|(id, _)| id == ability_id) {
+        if let Some(entry) = self
+            .player
+            .cooldowns
+            .iter_mut()
+            .find(|(id, _)| id == ability_id)
+        {
             entry.1 = cooldown;
         }
     }
@@ -1049,7 +1245,8 @@ impl CombatState {
             }
         }
         self.turn_index = (self.turn_index + 1) % self.initiative.len().max(1);
-        while matches!(self.current_turn(), TurnRef::Enemy(idx) if self.enemies.get(idx).map(|enemy| !enemy.is_alive()).unwrap_or(true)) {
+        while matches!(self.current_turn(), TurnRef::Enemy(idx) if self.enemies.get(idx).map(|enemy| !enemy.is_alive()).unwrap_or(true))
+        {
             self.turn_index = (self.turn_index + 1) % self.initiative.len().max(1);
         }
     }
@@ -1119,57 +1316,557 @@ impl AbilityDef {
     }
 }
 
-const WOLF_LOOT: &[LootTableEntry] = &[
-    LootTableEntry { item_type: "wolf_pelt", min_qty: 1, max_qty: 2, weight: 2, min_rarity: ItemRarity::Common },
-];
+const WOLF_LOOT: &[LootTableEntry] = &[LootTableEntry {
+    item_type: "wolf_pelt",
+    min_qty: 1,
+    max_qty: 2,
+    weight: 2,
+    min_rarity: ItemRarity::Common,
+}];
 const BANDIT_LOOT: &[LootTableEntry] = &[
-    LootTableEntry { item_type: "bandit_seal", min_qty: 1, max_qty: 1, weight: 2, min_rarity: ItemRarity::Common },
-    LootTableEntry { item_type: "old_map", min_qty: 1, max_qty: 1, weight: 4, min_rarity: ItemRarity::Uncommon },
+    LootTableEntry {
+        item_type: "bandit_seal",
+        min_qty: 1,
+        max_qty: 1,
+        weight: 2,
+        min_rarity: ItemRarity::Common,
+    },
+    LootTableEntry {
+        item_type: "old_map",
+        min_qty: 1,
+        max_qty: 1,
+        weight: 4,
+        min_rarity: ItemRarity::Uncommon,
+    },
 ];
-const UNDEAD_LOOT: &[LootTableEntry] = &[
-    LootTableEntry { item_type: "grave_ash", min_qty: 1, max_qty: 2, weight: 2, min_rarity: ItemRarity::Rare },
-];
+const UNDEAD_LOOT: &[LootTableEntry] = &[LootTableEntry {
+    item_type: "grave_ash",
+    min_qty: 1,
+    max_qty: 2,
+    weight: 2,
+    min_rarity: ItemRarity::Rare,
+}];
 
 pub const ABILITIES: &[AbilityDef] = &[
-    AbilityDef { id: "guard_stance", name: "Guard Stance", description: "Raise guard and harden against the next assault.", resource_kind: Some(ResourceKind::Stamina), cost: 6, cooldown: 2, target: AbilityTarget::SelfTarget, accuracy_bonus: 0, damage_min: 0, damage_max: 0, damage_type: DamageType::Physical, scaling_stat: MajorSkill::Constitution, apply_status: None, self_status: Some((StatusKind::Guard, 2, 4)), heal_amount: 0 },
-    AbilityDef { id: "cleaving_blow", name: "Cleaving Blow", description: "A punishing martial strike that can leave the foe weakened.", resource_kind: Some(ResourceKind::Stamina), cost: 8, cooldown: 2, target: AbilityTarget::Enemy, accuracy_bonus: 2, damage_min: 8, damage_max: 13, damage_type: DamageType::Physical, scaling_stat: MajorSkill::Strength, apply_status: Some((StatusKind::Weakness, 2, 2)), self_status: None, heal_amount: 0 },
-    AbilityDef { id: "shield_bash", name: "Shield Bash", description: "Crash into the enemy and force a short stun.", resource_kind: Some(ResourceKind::Stamina), cost: 10, cooldown: 3, target: AbilityTarget::Enemy, accuracy_bonus: 1, damage_min: 6, damage_max: 10, damage_type: DamageType::Physical, scaling_stat: MajorSkill::Strength, apply_status: Some((StatusKind::Stun, 1, 1)), self_status: None, heal_amount: 0 },
-    AbilityDef { id: "hunters_mark", name: "Hunter's Mark", description: "Mark a target to open them to follow-up damage.", resource_kind: Some(ResourceKind::Stamina), cost: 7, cooldown: 2, target: AbilityTarget::Enemy, accuracy_bonus: 3, damage_min: 5, damage_max: 8, damage_type: DamageType::Physical, scaling_stat: MajorSkill::Dexterity, apply_status: Some((StatusKind::Weakness, 2, 2)), self_status: None, heal_amount: 0 },
-    AbilityDef { id: "volley", name: "Volley", description: "Loose a punishing shot with high opening pressure.", resource_kind: Some(ResourceKind::Stamina), cost: 9, cooldown: 2, target: AbilityTarget::Enemy, accuracy_bonus: 2, damage_min: 8, damage_max: 12, damage_type: DamageType::Physical, scaling_stat: MajorSkill::Dexterity, apply_status: None, self_status: None, heal_amount: 0 },
-    AbilityDef { id: "crippling_shot", name: "Crippling Shot", description: "A precision strike that slows the enemy's response.", resource_kind: Some(ResourceKind::Stamina), cost: 10, cooldown: 3, target: AbilityTarget::Enemy, accuracy_bonus: 2, damage_min: 7, damage_max: 10, damage_type: DamageType::Physical, scaling_stat: MajorSkill::Dexterity, apply_status: Some((StatusKind::Weakness, 3, 2)), self_status: None, heal_amount: 0 },
-    AbilityDef { id: "ember_burst", name: "Ember Burst", description: "A burst of heat that leaves the target burning.", resource_kind: Some(ResourceKind::Mana), cost: 8, cooldown: 1, target: AbilityTarget::Enemy, accuracy_bonus: 2, damage_min: 7, damage_max: 11, damage_type: DamageType::Fire, scaling_stat: MajorSkill::Intelligence, apply_status: Some((StatusKind::Burn, 2, 3)), self_status: None, heal_amount: 0 },
-    AbilityDef { id: "frost_lance", name: "Frost Lance", description: "A cold spear of force that cuts and slows.", resource_kind: Some(ResourceKind::Mana), cost: 9, cooldown: 2, target: AbilityTarget::Enemy, accuracy_bonus: 2, damage_min: 8, damage_max: 12, damage_type: DamageType::Frost, scaling_stat: MajorSkill::Intelligence, apply_status: Some((StatusKind::Weakness, 2, 1)), self_status: None, heal_amount: 0 },
-    AbilityDef { id: "storm_surge", name: "Storm Surge", description: "A violent discharge that overwhelms the target's defenses.", resource_kind: Some(ResourceKind::Mana), cost: 12, cooldown: 3, target: AbilityTarget::Enemy, accuracy_bonus: 3, damage_min: 10, damage_max: 14, damage_type: DamageType::Lightning, scaling_stat: MajorSkill::Intelligence, apply_status: None, self_status: None, heal_amount: 0 },
-    AbilityDef { id: "dirty_cut", name: "Dirty Cut", description: "A jagged slice meant to keep the wound open.", resource_kind: Some(ResourceKind::Stamina), cost: 7, cooldown: 1, target: AbilityTarget::Enemy, accuracy_bonus: 3, damage_min: 5, damage_max: 9, damage_type: DamageType::Physical, scaling_stat: MajorSkill::Dexterity, apply_status: Some((StatusKind::Bleed, 2, 3)), self_status: None, heal_amount: 0 },
-    AbilityDef { id: "evasion", name: "Evasion", description: "Slip into a guarded stance and recover breath.", resource_kind: Some(ResourceKind::Stamina), cost: 6, cooldown: 2, target: AbilityTarget::SelfTarget, accuracy_bonus: 0, damage_min: 0, damage_max: 0, damage_type: DamageType::Physical, scaling_stat: MajorSkill::Dexterity, apply_status: None, self_status: Some((StatusKind::Guard, 1, 5)), heal_amount: 0 },
-    AbilityDef { id: "shadow_flurry", name: "Shadow Flurry", description: "A flurry of cuts delivered from broken tempo.", resource_kind: Some(ResourceKind::Stamina), cost: 11, cooldown: 3, target: AbilityTarget::Enemy, accuracy_bonus: 3, damage_min: 9, damage_max: 13, damage_type: DamageType::Shadow, scaling_stat: MajorSkill::Dexterity, apply_status: Some((StatusKind::Bleed, 3, 2)), self_status: None, heal_amount: 0 },
-    AbilityDef { id: "radiant_slam", name: "Radiant Slam", description: "Drive holy force through steel and shield.", resource_kind: Some(ResourceKind::Stamina), cost: 8, cooldown: 2, target: AbilityTarget::Enemy, accuracy_bonus: 2, damage_min: 7, damage_max: 11, damage_type: DamageType::Holy, scaling_stat: MajorSkill::Strength, apply_status: None, self_status: Some((StatusKind::Guard, 1, 2)), heal_amount: 0 },
-    AbilityDef { id: "vow_guard", name: "Vow Guard", description: "Swear the line will hold and reinforce your defense.", resource_kind: Some(ResourceKind::Mana), cost: 6, cooldown: 2, target: AbilityTarget::SelfTarget, accuracy_bonus: 0, damage_min: 0, damage_max: 0, damage_type: DamageType::Holy, scaling_stat: MajorSkill::Charisma, apply_status: None, self_status: Some((StatusKind::Guard, 2, 5)), heal_amount: 0 },
-    AbilityDef { id: "lay_on_hands", name: "Lay on Hands", description: "Restore wounds with a surge of divine conviction.", resource_kind: Some(ResourceKind::Mana), cost: 10, cooldown: 3, target: AbilityTarget::SelfTarget, accuracy_bonus: 0, damage_min: 0, damage_max: 0, damage_type: DamageType::Holy, scaling_stat: MajorSkill::Charisma, apply_status: None, self_status: Some((StatusKind::Regen, 2, 4)), heal_amount: 18 },
-    AbilityDef { id: "healing_prayer", name: "Healing Prayer", description: "A brief prayer that restores life and steadies the soul.", resource_kind: Some(ResourceKind::Mana), cost: 8, cooldown: 2, target: AbilityTarget::SelfTarget, accuracy_bonus: 0, damage_min: 0, damage_max: 0, damage_type: DamageType::Holy, scaling_stat: MajorSkill::Wisdom, apply_status: None, self_status: Some((StatusKind::Regen, 2, 5)), heal_amount: 16 },
-    AbilityDef { id: "smite_undead", name: "Smite Undead", description: "Condemn unquiet dead with radiant force.", resource_kind: Some(ResourceKind::Mana), cost: 9, cooldown: 2, target: AbilityTarget::Enemy, accuracy_bonus: 3, damage_min: 8, damage_max: 12, damage_type: DamageType::Holy, scaling_stat: MajorSkill::Wisdom, apply_status: None, self_status: None, heal_amount: 0 },
-    AbilityDef { id: "purge", name: "Purge", description: "Scour toxins and foul magic from the field.", resource_kind: Some(ResourceKind::Mana), cost: 10, cooldown: 3, target: AbilityTarget::Enemy, accuracy_bonus: 2, damage_min: 6, damage_max: 10, damage_type: DamageType::Holy, scaling_stat: MajorSkill::Wisdom, apply_status: Some((StatusKind::Weakness, 2, 2)), self_status: Some((StatusKind::Regen, 1, 4)), heal_amount: 0 },
-    AbilityDef { id: "rabid_bite", name: "Rabid Bite", description: "A savage bite that leaves venom in the wound.", resource_kind: None, cost: 0, cooldown: 3, target: AbilityTarget::Enemy, accuracy_bonus: 1, damage_min: 4, damage_max: 6, damage_type: DamageType::Poison, scaling_stat: MajorSkill::Strength, apply_status: Some((StatusKind::Poison, 2, 2)), self_status: None, heal_amount: 0 },
-    AbilityDef { id: "raider_gash", name: "Raider Gash", description: "A brutal slash meant to leave the target bleeding.", resource_kind: None, cost: 0, cooldown: 3, target: AbilityTarget::Enemy, accuracy_bonus: 1, damage_min: 5, damage_max: 8, damage_type: DamageType::Physical, scaling_stat: MajorSkill::Strength, apply_status: Some((StatusKind::Bleed, 2, 2)), self_status: None, heal_amount: 0 },
-    AbilityDef { id: "grave_bolt", name: "Grave Bolt", description: "A cold shard of necrotic force from the barrow dead.", resource_kind: Some(ResourceKind::Mana), cost: 5, cooldown: 2, target: AbilityTarget::Enemy, accuracy_bonus: 1, damage_min: 5, damage_max: 8, damage_type: DamageType::Shadow, scaling_stat: MajorSkill::Intelligence, apply_status: Some((StatusKind::Weakness, 2, 1)), self_status: None, heal_amount: 0 },
+    AbilityDef {
+        id: "guard_stance",
+        name: "Guard Stance",
+        description: "Raise guard and harden against the next assault.",
+        resource_kind: Some(ResourceKind::Stamina),
+        cost: 6,
+        cooldown: 2,
+        target: AbilityTarget::SelfTarget,
+        accuracy_bonus: 0,
+        damage_min: 0,
+        damage_max: 0,
+        damage_type: DamageType::Physical,
+        scaling_stat: MajorSkill::Constitution,
+        apply_status: None,
+        self_status: Some((StatusKind::Guard, 2, 4)),
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "cleaving_blow",
+        name: "Cleaving Blow",
+        description: "A punishing martial strike that can leave the foe weakened.",
+        resource_kind: Some(ResourceKind::Stamina),
+        cost: 8,
+        cooldown: 2,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 2,
+        damage_min: 8,
+        damage_max: 13,
+        damage_type: DamageType::Physical,
+        scaling_stat: MajorSkill::Strength,
+        apply_status: Some((StatusKind::Weakness, 2, 2)),
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "shield_bash",
+        name: "Shield Bash",
+        description: "Crash into the enemy and force a short stun.",
+        resource_kind: Some(ResourceKind::Stamina),
+        cost: 10,
+        cooldown: 3,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 1,
+        damage_min: 6,
+        damage_max: 10,
+        damage_type: DamageType::Physical,
+        scaling_stat: MajorSkill::Strength,
+        apply_status: Some((StatusKind::Stun, 1, 1)),
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "hunters_mark",
+        name: "Hunter's Mark",
+        description: "Mark a target to open them to follow-up damage.",
+        resource_kind: Some(ResourceKind::Stamina),
+        cost: 7,
+        cooldown: 2,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 3,
+        damage_min: 5,
+        damage_max: 8,
+        damage_type: DamageType::Physical,
+        scaling_stat: MajorSkill::Dexterity,
+        apply_status: Some((StatusKind::Weakness, 2, 2)),
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "volley",
+        name: "Volley",
+        description: "Loose a punishing shot with high opening pressure.",
+        resource_kind: Some(ResourceKind::Stamina),
+        cost: 9,
+        cooldown: 2,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 2,
+        damage_min: 8,
+        damage_max: 12,
+        damage_type: DamageType::Physical,
+        scaling_stat: MajorSkill::Dexterity,
+        apply_status: None,
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "crippling_shot",
+        name: "Crippling Shot",
+        description: "A precision strike that slows the enemy's response.",
+        resource_kind: Some(ResourceKind::Stamina),
+        cost: 10,
+        cooldown: 3,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 2,
+        damage_min: 7,
+        damage_max: 10,
+        damage_type: DamageType::Physical,
+        scaling_stat: MajorSkill::Dexterity,
+        apply_status: Some((StatusKind::Weakness, 3, 2)),
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "ember_burst",
+        name: "Ember Burst",
+        description: "A burst of heat that leaves the target burning.",
+        resource_kind: Some(ResourceKind::Mana),
+        cost: 8,
+        cooldown: 1,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 2,
+        damage_min: 7,
+        damage_max: 11,
+        damage_type: DamageType::Fire,
+        scaling_stat: MajorSkill::Intelligence,
+        apply_status: Some((StatusKind::Burn, 2, 3)),
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "frost_lance",
+        name: "Frost Lance",
+        description: "A cold spear of force that cuts and slows.",
+        resource_kind: Some(ResourceKind::Mana),
+        cost: 9,
+        cooldown: 2,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 2,
+        damage_min: 8,
+        damage_max: 12,
+        damage_type: DamageType::Frost,
+        scaling_stat: MajorSkill::Intelligence,
+        apply_status: Some((StatusKind::Weakness, 2, 1)),
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "storm_surge",
+        name: "Storm Surge",
+        description: "A violent discharge that overwhelms the target's defenses.",
+        resource_kind: Some(ResourceKind::Mana),
+        cost: 12,
+        cooldown: 3,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 3,
+        damage_min: 10,
+        damage_max: 14,
+        damage_type: DamageType::Lightning,
+        scaling_stat: MajorSkill::Intelligence,
+        apply_status: None,
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "dirty_cut",
+        name: "Dirty Cut",
+        description: "A jagged slice meant to keep the wound open.",
+        resource_kind: Some(ResourceKind::Stamina),
+        cost: 7,
+        cooldown: 1,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 3,
+        damage_min: 5,
+        damage_max: 9,
+        damage_type: DamageType::Physical,
+        scaling_stat: MajorSkill::Dexterity,
+        apply_status: Some((StatusKind::Bleed, 2, 3)),
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "evasion",
+        name: "Evasion",
+        description: "Slip into a guarded stance and recover breath.",
+        resource_kind: Some(ResourceKind::Stamina),
+        cost: 6,
+        cooldown: 2,
+        target: AbilityTarget::SelfTarget,
+        accuracy_bonus: 0,
+        damage_min: 0,
+        damage_max: 0,
+        damage_type: DamageType::Physical,
+        scaling_stat: MajorSkill::Dexterity,
+        apply_status: None,
+        self_status: Some((StatusKind::Guard, 1, 5)),
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "shadow_flurry",
+        name: "Shadow Flurry",
+        description: "A flurry of cuts delivered from broken tempo.",
+        resource_kind: Some(ResourceKind::Stamina),
+        cost: 11,
+        cooldown: 3,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 3,
+        damage_min: 9,
+        damage_max: 13,
+        damage_type: DamageType::Shadow,
+        scaling_stat: MajorSkill::Dexterity,
+        apply_status: Some((StatusKind::Bleed, 3, 2)),
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "radiant_slam",
+        name: "Radiant Slam",
+        description: "Drive holy force through steel and shield.",
+        resource_kind: Some(ResourceKind::Stamina),
+        cost: 8,
+        cooldown: 2,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 2,
+        damage_min: 7,
+        damage_max: 11,
+        damage_type: DamageType::Holy,
+        scaling_stat: MajorSkill::Strength,
+        apply_status: None,
+        self_status: Some((StatusKind::Guard, 1, 2)),
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "vow_guard",
+        name: "Vow Guard",
+        description: "Swear the line will hold and reinforce your defense.",
+        resource_kind: Some(ResourceKind::Mana),
+        cost: 6,
+        cooldown: 2,
+        target: AbilityTarget::SelfTarget,
+        accuracy_bonus: 0,
+        damage_min: 0,
+        damage_max: 0,
+        damage_type: DamageType::Holy,
+        scaling_stat: MajorSkill::Charisma,
+        apply_status: None,
+        self_status: Some((StatusKind::Guard, 2, 5)),
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "lay_on_hands",
+        name: "Lay on Hands",
+        description: "Restore wounds with a surge of divine conviction.",
+        resource_kind: Some(ResourceKind::Mana),
+        cost: 10,
+        cooldown: 3,
+        target: AbilityTarget::SelfTarget,
+        accuracy_bonus: 0,
+        damage_min: 0,
+        damage_max: 0,
+        damage_type: DamageType::Holy,
+        scaling_stat: MajorSkill::Charisma,
+        apply_status: None,
+        self_status: Some((StatusKind::Regen, 2, 4)),
+        heal_amount: 18,
+    },
+    AbilityDef {
+        id: "healing_prayer",
+        name: "Healing Prayer",
+        description: "A brief prayer that restores life and steadies the soul.",
+        resource_kind: Some(ResourceKind::Mana),
+        cost: 8,
+        cooldown: 2,
+        target: AbilityTarget::SelfTarget,
+        accuracy_bonus: 0,
+        damage_min: 0,
+        damage_max: 0,
+        damage_type: DamageType::Holy,
+        scaling_stat: MajorSkill::Wisdom,
+        apply_status: None,
+        self_status: Some((StatusKind::Regen, 2, 5)),
+        heal_amount: 16,
+    },
+    AbilityDef {
+        id: "smite_undead",
+        name: "Smite Undead",
+        description: "Condemn unquiet dead with radiant force.",
+        resource_kind: Some(ResourceKind::Mana),
+        cost: 9,
+        cooldown: 2,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 3,
+        damage_min: 8,
+        damage_max: 12,
+        damage_type: DamageType::Holy,
+        scaling_stat: MajorSkill::Wisdom,
+        apply_status: None,
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "purge",
+        name: "Purge",
+        description: "Scour toxins and foul magic from the field.",
+        resource_kind: Some(ResourceKind::Mana),
+        cost: 10,
+        cooldown: 3,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 2,
+        damage_min: 6,
+        damage_max: 10,
+        damage_type: DamageType::Holy,
+        scaling_stat: MajorSkill::Wisdom,
+        apply_status: Some((StatusKind::Weakness, 2, 2)),
+        self_status: Some((StatusKind::Regen, 1, 4)),
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "rabid_bite",
+        name: "Rabid Bite",
+        description: "A savage bite that leaves venom in the wound.",
+        resource_kind: None,
+        cost: 0,
+        cooldown: 3,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 1,
+        damage_min: 4,
+        damage_max: 6,
+        damage_type: DamageType::Poison,
+        scaling_stat: MajorSkill::Strength,
+        apply_status: Some((StatusKind::Poison, 2, 2)),
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "raider_gash",
+        name: "Raider Gash",
+        description: "A brutal slash meant to leave the target bleeding.",
+        resource_kind: None,
+        cost: 0,
+        cooldown: 3,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 1,
+        damage_min: 5,
+        damage_max: 8,
+        damage_type: DamageType::Physical,
+        scaling_stat: MajorSkill::Strength,
+        apply_status: Some((StatusKind::Bleed, 2, 2)),
+        self_status: None,
+        heal_amount: 0,
+    },
+    AbilityDef {
+        id: "grave_bolt",
+        name: "Grave Bolt",
+        description: "A cold shard of necrotic force from the barrow dead.",
+        resource_kind: Some(ResourceKind::Mana),
+        cost: 5,
+        cooldown: 2,
+        target: AbilityTarget::Enemy,
+        accuracy_bonus: 1,
+        damage_min: 5,
+        damage_max: 8,
+        damage_type: DamageType::Shadow,
+        scaling_stat: MajorSkill::Intelligence,
+        apply_status: Some((StatusKind::Weakness, 2, 1)),
+        self_status: None,
+        heal_amount: 0,
+    },
 ];
 
 pub const ENEMIES: &[EnemyDef] = &[
-    EnemyDef { id: "wild_wolf", name: "Wild Wolf", family: "Beast", role: EnemyRole::Skirmisher, level: 1, hp: 24, mana: 0, stamina: 10, attack_bonus: 3, defense: 10, initiative: 3, damage_min: 3, damage_max: 5, weapon_kind: WeaponKind::Melee, ability_ids: &["rabid_bite"], loot: WOLF_LOOT, reward_xp: 20, reward_gold: 8 },
-    EnemyDef { id: "alpha_wolf", name: "Alpha Wolf", family: "Beast", role: EnemyRole::Brute, level: 2, hp: 32, mana: 0, stamina: 12, attack_bonus: 4, defense: 11, initiative: 2, damage_min: 4, damage_max: 7, weapon_kind: WeaponKind::Melee, ability_ids: &["rabid_bite"], loot: WOLF_LOOT, reward_xp: 28, reward_gold: 12 },
-    EnemyDef { id: "road_raider", name: "Road Raider", family: "Bandit", role: EnemyRole::Brute, level: 2, hp: 32, mana: 0, stamina: 14, attack_bonus: 4, defense: 11, initiative: 2, damage_min: 4, damage_max: 7, weapon_kind: WeaponKind::Melee, ability_ids: &["raider_gash"], loot: BANDIT_LOOT, reward_xp: 28, reward_gold: 15 },
-    EnemyDef { id: "bandit_bowman", name: "Bandit Bowman", family: "Bandit", role: EnemyRole::Skirmisher, level: 2, hp: 26, mana: 0, stamina: 12, attack_bonus: 4, defense: 10, initiative: 4, damage_min: 3, damage_max: 6, weapon_kind: WeaponKind::Ranged, ability_ids: &[], loot: BANDIT_LOOT, reward_xp: 24, reward_gold: 12 },
-    EnemyDef { id: "gravebound", name: "Gravebound", family: "Undead", role: EnemyRole::Brute, level: 3, hp: 38, mana: 4, stamina: 12, attack_bonus: 5, defense: 12, initiative: 2, damage_min: 5, damage_max: 8, weapon_kind: WeaponKind::Melee, ability_ids: &["grave_bolt"], loot: UNDEAD_LOOT, reward_xp: 34, reward_gold: 18 },
-    EnemyDef { id: "grave_channeler", name: "Grave Channeler", family: "Undead", role: EnemyRole::Caster, level: 3, hp: 28, mana: 16, stamina: 8, attack_bonus: 4, defense: 11, initiative: 3, damage_min: 3, damage_max: 6, weapon_kind: WeaponKind::Magic, ability_ids: &["grave_bolt"], loot: UNDEAD_LOOT, reward_xp: 38, reward_gold: 22 },
+    EnemyDef {
+        id: "wild_wolf",
+        name: "Wild Wolf",
+        family: "Beast",
+        role: EnemyRole::Skirmisher,
+        level: 1,
+        hp: 24,
+        mana: 0,
+        stamina: 10,
+        attack_bonus: 3,
+        defense: 10,
+        initiative: 3,
+        damage_min: 3,
+        damage_max: 5,
+        weapon_kind: WeaponKind::Melee,
+        ability_ids: &["rabid_bite"],
+        loot: WOLF_LOOT,
+        reward_xp: 20,
+        reward_gold: 8,
+    },
+    EnemyDef {
+        id: "alpha_wolf",
+        name: "Alpha Wolf",
+        family: "Beast",
+        role: EnemyRole::Brute,
+        level: 2,
+        hp: 32,
+        mana: 0,
+        stamina: 12,
+        attack_bonus: 4,
+        defense: 11,
+        initiative: 2,
+        damage_min: 4,
+        damage_max: 7,
+        weapon_kind: WeaponKind::Melee,
+        ability_ids: &["rabid_bite"],
+        loot: WOLF_LOOT,
+        reward_xp: 28,
+        reward_gold: 12,
+    },
+    EnemyDef {
+        id: "road_raider",
+        name: "Road Raider",
+        family: "Bandit",
+        role: EnemyRole::Brute,
+        level: 2,
+        hp: 32,
+        mana: 0,
+        stamina: 14,
+        attack_bonus: 4,
+        defense: 11,
+        initiative: 2,
+        damage_min: 4,
+        damage_max: 7,
+        weapon_kind: WeaponKind::Melee,
+        ability_ids: &["raider_gash"],
+        loot: BANDIT_LOOT,
+        reward_xp: 28,
+        reward_gold: 15,
+    },
+    EnemyDef {
+        id: "bandit_bowman",
+        name: "Bandit Bowman",
+        family: "Bandit",
+        role: EnemyRole::Skirmisher,
+        level: 2,
+        hp: 26,
+        mana: 0,
+        stamina: 12,
+        attack_bonus: 4,
+        defense: 10,
+        initiative: 4,
+        damage_min: 3,
+        damage_max: 6,
+        weapon_kind: WeaponKind::Ranged,
+        ability_ids: &[],
+        loot: BANDIT_LOOT,
+        reward_xp: 24,
+        reward_gold: 12,
+    },
+    EnemyDef {
+        id: "gravebound",
+        name: "Gravebound",
+        family: "Undead",
+        role: EnemyRole::Brute,
+        level: 3,
+        hp: 38,
+        mana: 4,
+        stamina: 12,
+        attack_bonus: 5,
+        defense: 12,
+        initiative: 2,
+        damage_min: 5,
+        damage_max: 8,
+        weapon_kind: WeaponKind::Melee,
+        ability_ids: &["grave_bolt"],
+        loot: UNDEAD_LOOT,
+        reward_xp: 34,
+        reward_gold: 18,
+    },
+    EnemyDef {
+        id: "grave_channeler",
+        name: "Grave Channeler",
+        family: "Undead",
+        role: EnemyRole::Caster,
+        level: 3,
+        hp: 28,
+        mana: 16,
+        stamina: 8,
+        attack_bonus: 4,
+        defense: 11,
+        initiative: 3,
+        damage_min: 3,
+        damage_max: 6,
+        weapon_kind: WeaponKind::Magic,
+        ability_ids: &["grave_bolt"],
+        loot: UNDEAD_LOOT,
+        reward_xp: 38,
+        reward_gold: 22,
+    },
 ];
 
 pub const ENCOUNTERS: &[EncounterDef] = &[
-    EncounterDef { id: "beast_hunt", name: "Beast Hunt", environment_tags: &["woods", "brush"], enemies: &["wild_wolf"] },
-    EncounterDef { id: "beast_alpha", name: "Alpha Pack", environment_tags: &["woods", "moonlit"], enemies: &["alpha_wolf", "wild_wolf"] },
-    EncounterDef { id: "bandit_ambush", name: "Bandit Ambush", environment_tags: &["road", "ditch"], enemies: &["road_raider", "bandit_bowman"] },
-    EncounterDef { id: "bandit_raiders", name: "Raider Patrol", environment_tags: &["road", "rain"], enemies: &["road_raider", "road_raider"] },
-    EncounterDef { id: "undead_patrol", name: "Undead Patrol", environment_tags: &["barrow", "ash"], enemies: &["gravebound", "gravebound"] },
-    EncounterDef { id: "barrow_rites", name: "Barrow Rites", environment_tags: &["barrow", "ritual"], enemies: &["grave_channeler", "gravebound"] },
+    EncounterDef {
+        id: "beast_hunt",
+        name: "Beast Hunt",
+        environment_tags: &["woods", "brush"],
+        enemies: &["wild_wolf"],
+    },
+    EncounterDef {
+        id: "beast_alpha",
+        name: "Alpha Pack",
+        environment_tags: &["woods", "moonlit"],
+        enemies: &["alpha_wolf", "wild_wolf"],
+    },
+    EncounterDef {
+        id: "bandit_ambush",
+        name: "Bandit Ambush",
+        environment_tags: &["road", "ditch"],
+        enemies: &["road_raider", "bandit_bowman"],
+    },
+    EncounterDef {
+        id: "bandit_raiders",
+        name: "Raider Patrol",
+        environment_tags: &["road", "rain"],
+        enemies: &["road_raider", "road_raider"],
+    },
+    EncounterDef {
+        id: "undead_patrol",
+        name: "Undead Patrol",
+        environment_tags: &["barrow", "ash"],
+        enemies: &["gravebound", "gravebound"],
+    },
+    EncounterDef {
+        id: "barrow_rites",
+        name: "Barrow Rites",
+        environment_tags: &["barrow", "ritual"],
+        enemies: &["grave_channeler", "gravebound"],
+    },
 ];
 
 pub fn ability_def(id: &str) -> Option<&'static AbilityDef> {
@@ -1177,22 +1874,36 @@ pub fn ability_def(id: &str) -> Option<&'static AbilityDef> {
 }
 
 pub fn enemy_def(id: &str) -> &'static EnemyDef {
-    ENEMIES.iter().find(|enemy| enemy.id == id).unwrap_or(&ENEMIES[0])
+    ENEMIES
+        .iter()
+        .find(|enemy| enemy.id == id)
+        .unwrap_or(&ENEMIES[0])
 }
 
 fn enemy_def_by_name(name: &str) -> &'static EnemyDef {
-    ENEMIES.iter().find(|enemy| enemy.name == name).unwrap_or(&ENEMIES[0])
+    ENEMIES
+        .iter()
+        .find(|enemy| enemy.name == name)
+        .unwrap_or(&ENEMIES[0])
 }
 
 pub fn encounter_def(id: &str) -> &'static EncounterDef {
-    ENCOUNTERS.iter().find(|encounter| encounter.id == id).unwrap_or(&ENCOUNTERS[0])
+    ENCOUNTERS
+        .iter()
+        .find(|encounter| encounter.id == id)
+        .unwrap_or(&ENCOUNTERS[0])
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ability_def, encounter_def, ActionTab, CombatOutcome, CombatState, PlayerAction, StatusKind, TurnRef};
-    use crate::character::{Class, KnownAbility, ProficiencyData, Race, ResourcePool, SavedCharacter, Stats};
-    use crate::inventory::{gear_package_items, Equipment, InventoryItem};
+    use super::{
+        ActionTab, CombatOutcome, CombatState, PlayerAction, StatusKind, TurnRef, ability_def,
+        encounter_def,
+    };
+    use crate::character::{
+        Class, KnownAbility, ProficiencyData, Race, ResourcePool, SavedCharacter, Stats,
+    };
+    use crate::inventory::{Equipment, InventoryItem, gear_package_items};
 
     fn test_character(class: Class) -> SavedCharacter {
         SavedCharacter {
@@ -1214,7 +1925,10 @@ mod tests {
                 charisma: 10,
             },
             resources: ResourcePool::full(60, 30, 30),
-            proficiencies: vec![ProficiencyData { kind: crate::character::MinorSkill::Cooking, xp: 0 }],
+            proficiencies: vec![ProficiencyData {
+                kind: crate::character::MinorSkill::Cooking,
+                xp: 0,
+            }],
             known_abilities: vec![KnownAbility {
                 ability_id: "cleaving_blow".to_string(),
                 rank: 1,
@@ -1293,14 +2007,26 @@ mod tests {
         let mut affected = false;
         for _ in 0..32 {
             let _ = combat.resolve_player_action(PlayerAction::UseAbility);
-            if combat.enemies.iter().any(|enemy| enemy.statuses.iter().any(|status| status.kind == StatusKind::Weakness))
-                || combat.enemies.iter().any(|enemy| enemy.resources.hp < enemy.resources.max_hp)
+            if combat.enemies.iter().any(|enemy| {
+                enemy
+                    .statuses
+                    .iter()
+                    .any(|status| status.kind == StatusKind::Weakness)
+            }) || combat
+                .enemies
+                .iter()
+                .any(|enemy| enemy.resources.hp < enemy.resources.max_hp)
             {
                 affected = true;
                 break;
             }
             force_player_turn(&mut combat);
-            if let Some(known) = combat.player.cooldowns.iter_mut().find(|(id, _)| id == "cleaving_blow") {
+            if let Some(known) = combat
+                .player
+                .cooldowns
+                .iter_mut()
+                .find(|(id, _)| id == "cleaving_blow")
+            {
                 known.1 = 0;
             }
         }
@@ -1312,7 +2038,10 @@ mod tests {
         let mut combat = CombatState::from_character_and_encounter(
             &test_character(Class::Warrior),
             &test_equipment(),
-            &[InventoryItem { item_type: "health_potion".to_string(), quantity: 2 }],
+            &[InventoryItem {
+                item_type: "health_potion".to_string(),
+                quantity: 2,
+            }],
             "beast_hunt",
         );
         force_player_turn(&mut combat);
