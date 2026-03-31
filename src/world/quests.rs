@@ -394,15 +394,15 @@ pub fn quest_completion_story_lines(quest_id: &str) -> &'static [&'static str] {
         "rumors_in_the_hearth" => {
             &["Brin speaks of travelers who saw lights on a fouled moor east of the barrow."]
         }
-        "the_blighted_moor" => &[
-            "The marsh reeks of death and old magic. The Mage King's servants are already here.",
-        ],
+        "the_blighted_moor" => {
+            &["The marsh reeks of death and old magic. The Mage King's servants are already here."]
+        }
         "servants_of_ash" => {
             &["Among the fallen risen, you find sealed orders bearing the Mage King's cipher."]
         }
-        "the_kings_cipher" => &[
-            "The cipher scroll is intact. Arcanist Sel is the only one who can read it.",
-        ],
+        "the_kings_cipher" => {
+            &["The cipher scroll is intact. Arcanist Sel is the only one who can read it."]
+        }
         "the_exiled_throne" => &[
             "Sel decodes the scroll and names the place where the Mage King will return.",
             "The second chapter opens with a war the town cannot yet see.",
