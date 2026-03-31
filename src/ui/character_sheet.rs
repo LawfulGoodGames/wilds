@@ -143,11 +143,6 @@ pub fn render_character_sheet(app: &App, area: Rect, buf: &mut Buffer) {
                 let major = MajorSkill::ALL[selected_idx];
                 let score = ch.major_skill(major);
                 let modifier = ch.stats.modifier(major);
-                let plan = crate::character::major_study_plan_for_xp(
-                    major,
-                    ch.major_skill_xp(major),
-                    &ch.stats,
-                );
                 let mut lines = vec![
                     Line::from(Span::styled(
                         major.full_name(),
@@ -168,64 +163,21 @@ pub fn render_character_sheet(app: &App, area: Rect, buf: &mut Buffer) {
                         Style::default().fg(Color::Cyan),
                     )),
                     Line::from(""),
-                    Line::from(format!("Study time: {}h", plan.hours)),
-                    Line::from(format!("Success chance: {}%", plan.success_chance)),
-                    Line::from(format!("On success: +{} XP", plan.success_xp)),
-                    Line::from(format!("On setback: +{} XP", plan.failure_xp)),
-                    Line::from(format!(
-                        "Governing stat: {}",
-                        plan.governing_stat.full_name()
-                    )),
+                    Line::from(format!("Governing stat: {}", major.full_name())),
+                    Line::from(format!("Affects: {}", major.effects_summary())),
+                    Line::from(format!("Training focus: {}", major.training_focus())),
                 ];
-                if let Some(training) = &app.active_training {
-                    if training.target == crate::app::ProficiencyTarget::Major(major) {
-                        lines.push(Line::from(""));
-                        lines.push(Line::from(Span::styled(
-                            "Training in progress",
-                            Style::default()
-                                .fg(Color::Green)
-                                .add_modifier(Modifier::BOLD),
-                        )));
-                        lines.push(Line::from(Span::styled(
-                            progress_bar(training.progress(), 28),
-                            Style::default().fg(Color::Green),
-                        )));
-                        lines.push(Line::from(format!(
-                            "Focus remaining: {:.1}s",
-                            (training.total_ticks.saturating_sub(training.elapsed_ticks)) as f64
-                                / 30.0
-                        )));
-                        lines.push(Line::from(format!(
-                            "Study hours: {}/{}",
-                            ((training.progress() * training.hours as f64).floor() as i32)
-                                .min(training.hours),
-                            training.hours
-                        )));
-                    }
-                }
-                if let Some((trained_skill, rank)) = app.recent_training_level_up {
-                    if trained_skill == crate::app::ProficiencyTarget::Major(major) {
-                        lines.push(Line::from(""));
-                        lines.push(Line::from(Span::styled(
-                            format!("LEVEL UP! {} reached Rank {}", major.full_name(), rank),
-                            Style::default()
-                                .fg(Color::Yellow)
-                                .add_modifier(Modifier::BOLD),
-                        )));
-                    }
-                }
                 lines.push(Line::from(""));
                 lines.push(Line::from(
                     app.status_message
                         .as_deref()
-                        .unwrap_or("Choose a proficiency and train to improve it."),
+                        .unwrap_or("Train proficiencies from the town's Train action."),
                 ));
                 lines
             } else {
                 ch.proficiencies
                     .get(selected_idx - MajorSkill::ALL.len())
                     .map(|skill| {
-                        let plan = crate::character::study_plan(skill.kind, skill.xp, &ch.stats);
                         let mut lines = vec![
                             Line::from(Span::styled(
                                 skill.kind.name(),
@@ -244,62 +196,18 @@ pub fn render_character_sheet(app: &App, area: Rect, buf: &mut Buffer) {
                                 Style::default().fg(Color::Cyan),
                             )),
                             Line::from(""),
-                            Line::from(format!("Study time: {}h", plan.hours)),
-                            Line::from(format!("Success chance: {}%", plan.success_chance)),
-                            Line::from(format!("On success: +{} XP", plan.success_xp)),
-                            Line::from(format!("On setback: +{} XP", plan.failure_xp)),
                             Line::from(format!(
                                 "Governing stat: {}",
-                                plan.governing_stat.full_name()
+                                skill.kind.governing_stat().full_name()
                             )),
+                            Line::from(format!("Affects: {}", skill.kind.effects_summary())),
+                            Line::from(format!("Training focus: {}", skill.kind.training_focus())),
                         ];
-                        if let Some(training) = &app.active_training {
-                            if training.target == crate::app::ProficiencyTarget::Minor(skill.kind) {
-                                lines.push(Line::from(""));
-                                lines.push(Line::from(Span::styled(
-                                    "Training in progress",
-                                    Style::default()
-                                        .fg(Color::Green)
-                                        .add_modifier(Modifier::BOLD),
-                                )));
-                                lines.push(Line::from(Span::styled(
-                                    progress_bar(training.progress(), 28),
-                                    Style::default().fg(Color::Green),
-                                )));
-                                lines.push(Line::from(format!(
-                                    "Focus remaining: {:.1}s",
-                                    (training.total_ticks.saturating_sub(training.elapsed_ticks))
-                                        as f64
-                                        / 30.0
-                                )));
-                                lines.push(Line::from(format!(
-                                    "Study hours: {}/{}",
-                                    ((training.progress() * training.hours as f64).floor() as i32)
-                                        .min(training.hours),
-                                    training.hours
-                                )));
-                            }
-                        }
-                        if let Some((trained_skill, rank)) = app.recent_training_level_up {
-                            if trained_skill == crate::app::ProficiencyTarget::Minor(skill.kind) {
-                                lines.push(Line::from(""));
-                                lines.push(Line::from(Span::styled(
-                                    format!(
-                                        "LEVEL UP! {} reached Rank {}",
-                                        skill.kind.name(),
-                                        rank
-                                    ),
-                                    Style::default()
-                                        .fg(Color::Yellow)
-                                        .add_modifier(Modifier::BOLD),
-                                )));
-                            }
-                        }
                         lines.push(Line::from(""));
                         lines.push(Line::from(
                             app.status_message
                                 .as_deref()
-                                .unwrap_or("Choose a proficiency and train to improve it."),
+                                .unwrap_or("Train proficiencies from the town's Train action."),
                         ));
                         lines
                     })
@@ -340,11 +248,7 @@ pub fn render_character_sheet(app: &App, area: Rect, buf: &mut Buffer) {
     }
 
     let hint = if app.character_tab == CharacterTab::Proficiencies {
-        if app.active_training.is_some() {
-            "← → / Tab change tab    ↑ ↓ browse    Training in progress...    Esc return"
-        } else {
-            "← → / Tab change tab    ↑ ↓ browse    Enter or t train proficiency    Esc return"
-        }
+        "← → / Tab change tab    ↑ ↓ browse    Train from town    Esc return"
     } else {
         "← → / Tab change tab    ↑ ↓ browse    Esc return"
     };

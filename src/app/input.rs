@@ -72,6 +72,7 @@ impl App {
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
                 KeyCode::Enter => self.events.send(AppEvent::Confirm),
                 KeyCode::Char('x') => self.events.send(AppEvent::OpenExplore),
+                KeyCode::Char('t') => self.events.send(AppEvent::OpenTraining),
                 KeyCode::Char('c') => self.events.send(AppEvent::OpenCharacter),
                 KeyCode::Char('i') => self.events.send(AppEvent::OpenInventory),
                 KeyCode::Char('e') => self.events.send(AppEvent::OpenEquipment),
@@ -94,11 +95,33 @@ impl App {
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
                 KeyCode::Left | KeyCode::Char('h') => self.events.send(AppEvent::Left),
                 KeyCode::Right | KeyCode::Char('l') => self.events.send(AppEvent::Right),
-                KeyCode::Enter | KeyCode::Char('t') => self.events.send(AppEvent::Confirm),
                 KeyCode::Tab => self.events.send(AppEvent::NextTab),
                 KeyCode::Esc => self.events.send(AppEvent::Back),
                 _ => {}
             },
+            Screen::Training => {
+                if self.training.session.is_some() {
+                    match key_event.code {
+                        KeyCode::Char(c) if c.is_ascii_alphabetic() => {
+                            if let KeyCode::Char(c) = key_event.code {
+                                self.events.send(AppEvent::TrainingInput(c));
+                            }
+                        }
+                        KeyCode::Esc => self.events.send(AppEvent::Back),
+                        _ => {}
+                    }
+                } else {
+                    match key_event.code {
+                        KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            self.events.send(AppEvent::SelectDown)
+                        }
+                        KeyCode::Enter => self.events.send(AppEvent::Confirm),
+                        KeyCode::Esc => self.events.send(AppEvent::Back),
+                        _ => {}
+                    }
+                }
+            }
             Screen::Inventory => match key_event.code {
                 KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
@@ -199,6 +222,9 @@ impl App {
                 -1,
                 achievements::achievement_defs().len(),
             ),
+            Screen::Training => {
+                self.training_cursor(-1);
+            }
             Screen::Shop => {
                 self.shop_cursor = self.shop_cursor.saturating_sub(1);
                 self.detail_scroll = 0;
@@ -247,6 +273,9 @@ impl App {
                 1,
                 achievements::achievement_defs().len(),
             ),
+            Screen::Training => {
+                self.training_cursor(1);
+            }
             Screen::Shop => {
                 let len = if self.shop_buy_mode {
                     vendor_def(VendorId::ALL[self.vendor_cursor])

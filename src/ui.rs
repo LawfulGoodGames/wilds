@@ -6,6 +6,7 @@ mod creation;
 mod menu;
 mod panels;
 mod shared;
+mod training;
 
 use crate::app::{App, Screen};
 use character_sheet::render_character_sheet;
@@ -20,6 +21,7 @@ use shared::{
     GOLD, dim_style, hint_bar, normal_style, progress_bar, render_centered, render_item_detail,
     render_placeholder, render_status_bar, selected_style,
 };
+use training::render_training;
 
 const TITLE: &str = r"
  __        _____ _     ____  ____
@@ -44,6 +46,7 @@ impl Widget for &App {
             Screen::Quests => render_quests(self, area, buf),
             Screen::Achievements => render_achievements(self, area, buf),
             Screen::Shop => render_shop(self, area, buf),
+            Screen::Training => render_training(self, area, buf),
             Screen::Dialogue => render_dialogue(self, area, buf),
             Screen::Combat => render_combat(self, area, buf),
         }

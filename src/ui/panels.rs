@@ -106,7 +106,7 @@ pub fn render_town(app: &App, area: Rect, buf: &mut Buffer) {
         .render(panels[1], buf);
 
     hint_bar(
-        "↑ ↓ choose    Enter confirm    x explore    c character    i inventory    e equipment    q quests    h achievements    v vendors    r rest",
+        "↑ ↓ choose    Enter confirm    x explore    t train    c character    i inventory    e equipment    q quests    h achievements    v vendors    r rest",
         chunks[2],
         buf,
     );

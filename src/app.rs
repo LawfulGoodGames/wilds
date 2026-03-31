@@ -2,10 +2,13 @@ mod combat;
 mod input;
 mod navigation;
 mod progression;
+mod training;
 mod world;
 
 use crate::achievements::AchievementState;
-use crate::character::{CharacterCreation, CreationStep, MajorSkill, MinorSkill, SavedCharacter};
+use crate::character::{
+    CharacterCreation, CreationStep, MajorSkill, MinorSkill, SavedCharacter, TrainingSessionPlan,
+};
 use crate::combat::{ActionTab, CombatState, PlayerAction};
 use crate::db;
 use crate::event::{AppEvent, Event, EventHandler};
@@ -56,6 +59,7 @@ pub enum Screen {
     Achievements,
     Quests,
     Shop,
+    Training,
     Dialogue,
     Combat,
 }
@@ -64,23 +68,25 @@ pub enum Screen {
 pub enum TownAction {
     Explore,
     Rest,
+    Train,
     Shop,
-    Character,
     Inventory,
     Equipment,
+    Character,
     Quests,
     Achievements,
     LeaveTown,
 }
 
 impl TownAction {
-    pub const ALL: [TownAction; 9] = [
+    pub const ALL: [TownAction; 10] = [
         TownAction::Explore,
         TownAction::Rest,
+        TownAction::Train,
         TownAction::Shop,
-        TownAction::Character,
         TownAction::Inventory,
         TownAction::Equipment,
+        TownAction::Character,
         TownAction::Quests,
         TownAction::Achievements,
         TownAction::LeaveTown,
@@ -90,10 +96,11 @@ impl TownAction {
         match self {
             Self::Explore => "Explore the Wilds",
             Self::Rest => "Rest at the Inn",
+            Self::Train => "Train Proficiencies",
             Self::Shop => "Visit Vendors",
-            Self::Character => "Character Sheet",
             Self::Inventory => "Inventory",
             Self::Equipment => "Equipment",
+            Self::Character => "Character Sheet",
             Self::Quests => "Quest Log",
             Self::Achievements => "Achievements",
             Self::LeaveTown => "Return to Main Menu",
@@ -124,8 +131,6 @@ impl CharacterTab {
     }
 }
 
-const TRAINING_TICKS_PER_HOUR: u32 = 20;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProficiencyTarget {
     Major(MajorSkill),
@@ -141,25 +146,72 @@ impl ProficiencyTarget {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ActiveTraining {
-    pub target: ProficiencyTarget,
-    pub total_ticks: u32,
-    pub elapsed_ticks: u32,
-    pub hours: i32,
-    pub success_chance: i32,
-    pub success_gain: i32,
-    pub failure_gain: i32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrainingTier {
+    Poor,
+    Solid,
+    Great,
 }
 
-impl ActiveTraining {
-    pub fn progress(&self) -> f64 {
-        if self.total_ticks == 0 {
-            1.0
-        } else {
-            (self.elapsed_ticks as f64 / self.total_ticks as f64).clamp(0.0, 1.0)
+impl TrainingTier {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Poor => "Poor",
+            Self::Solid => "Solid",
+            Self::Great => "Great",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrainingPhase {
+    Showing,
+    Input,
+}
+
+#[derive(Debug, Clone)]
+pub struct TrainingSession {
+    pub target: ProficiencyTarget,
+    pub plan: TrainingSessionPlan,
+    pub phase: TrainingPhase,
+    pub sequence: Vec<char>,
+    pub reveal_ticks_remaining: u32,
+    pub input_index: usize,
+    pub score: i32,
+    pub max_score: i32,
+    pub hits: usize,
+    pub misses: usize,
+}
+
+impl TrainingSession {
+    pub fn progress(&self) -> f64 {
+        if self.max_score == 0 {
+            1.0
+        } else {
+            (self.score as f64 / self.max_score as f64).clamp(0.0, 1.0)
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TrainingResult {
+    pub target: ProficiencyTarget,
+    pub tier: TrainingTier,
+    pub gained_xp: i32,
+    pub hours: i32,
+    pub hits: usize,
+    pub misses: usize,
+    pub score: i32,
+    pub max_score: i32,
+    pub level_up_rank: Option<i32>,
+    pub achievement_lines: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TrainingState {
+    pub cursor: usize,
+    pub session: Option<TrainingSession>,
+    pub result: Option<TrainingResult>,
 }
 
 #[derive(Debug)]
@@ -187,13 +239,12 @@ pub struct App {
     pub equipment_cursor: usize,
     pub achievement_cursor: usize,
     pub character_cursor: usize,
+    pub training: TrainingState,
     pub character_tab: CharacterTab,
     pub dialogue_title: String,
     pub dialogue_lines: Vec<String>,
     pub dialogue_return: Screen,
     pub status_message: Option<String>,
-    pub active_training: Option<ActiveTraining>,
-    pub recent_training_level_up: Option<(ProficiencyTarget, i32)>,
     pub achievements: AchievementState,
     pool: SqlitePool,
     pub events: EventHandler,
@@ -225,13 +276,12 @@ impl App {
             equipment_cursor: 0,
             achievement_cursor: 0,
             character_cursor: 0,
+            training: TrainingState::default(),
             character_tab: CharacterTab::Proficiencies,
             dialogue_title: String::new(),
             dialogue_lines: vec![],
             dialogue_return: Screen::Town,
             status_message: None,
-            active_training: None,
-            recent_training_level_up: None,
             achievements: AchievementState::default(),
             pool,
             events: EventHandler::new(),
@@ -257,15 +307,8 @@ impl App {
     }
 
     async fn handle_tick(&mut self) -> color_eyre::Result<()> {
-        let ready = if let Some(training) = self.active_training.as_mut() {
-            training.elapsed_ticks = (training.elapsed_ticks + 1).min(training.total_ticks);
-            training.elapsed_ticks >= training.total_ticks
-        } else {
-            false
-        };
-
-        if ready {
-            self.resolve_training_completion().await?;
+        if self.screen == Screen::Training {
+            self.tick_training_session().await?;
         }
 
         Ok(())
@@ -287,6 +330,7 @@ impl App {
             AppEvent::OpenQuests => self.open_quests(),
             AppEvent::OpenAchievements => self.open_achievements(),
             AppEvent::OpenShop => self.open_shop().await?,
+            AppEvent::OpenTraining => self.open_training(),
             AppEvent::RestAtInn => self.rest_at_inn().await?,
             AppEvent::ExploreSelected => self.explore_selected().await?,
             AppEvent::ShopToggleMode => self.toggle_shop_mode(),
@@ -312,6 +356,7 @@ impl App {
             }
             AppEvent::DetailScrollUp => self.scroll_detail(-4),
             AppEvent::DetailScrollDown => self.scroll_detail(4),
+            AppEvent::TrainingInput(key) => self.handle_training_input(key).await?,
             AppEvent::Quit => self.quit(),
         }
         Ok(())
@@ -351,6 +396,7 @@ impl App {
             }
             Screen::Town => match TownAction::ALL[self.town_cursor] {
                 TownAction::Explore => self.open_explore(),
+                TownAction::Train => self.open_training(),
                 TownAction::Character => self.open_character_sheet(),
                 TownAction::Inventory => self.open_inventory().await?,
                 TownAction::Equipment => self.open_equipment().await?,
@@ -362,9 +408,7 @@ impl App {
             },
             Screen::Inventory => self.use_inventory_item().await?,
             Screen::Equipment => self.unequip_item().await?,
-            Screen::CharacterSheet if self.character_tab == CharacterTab::Proficiencies => {
-                self.train_selected_proficiency().await?
-            }
+            Screen::Training => self.start_training_session().await?,
             _ => {}
         }
         Ok(())

@@ -29,6 +29,7 @@ pub enum AppEvent {
     OpenQuests,
     OpenAchievements,
     OpenShop,
+    OpenTraining,
     RestAtInn,
     ExploreSelected,
     ShopToggleMode,
@@ -48,6 +49,7 @@ pub enum AppEvent {
     CombatFlee,
     DetailScrollUp,
     DetailScrollDown,
+    TrainingInput(char),
     Quit,
 }
 

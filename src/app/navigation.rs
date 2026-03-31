@@ -23,7 +23,9 @@ impl App {
             | Screen::Quests
             | Screen::Achievements
             | Screen::Shop
+            | Screen::Training
             | Screen::Combat => {
+                self.cancel_training_session();
                 self.screen = Screen::Town;
                 self.combat = None;
             }
@@ -90,6 +92,12 @@ impl App {
         self.detail_scroll = 0;
         self.screen = Screen::Shop;
         Ok(())
+    }
+
+    pub fn open_training(&mut self) {
+        self.training = super::TrainingState::default();
+        self.screen = Screen::Training;
+        self.status_message = None;
     }
 
     pub fn open_dialog(&mut self, title: &str, lines: Vec<String>, return_screen: Screen) {

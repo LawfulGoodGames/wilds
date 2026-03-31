@@ -12,6 +12,19 @@ pub struct StudyPlan {
     pub governing_stat: MajorSkill,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct TrainingSessionPlan {
+    pub governing_stat: MajorSkill,
+    pub beats: usize,
+    pub response_ticks: u32,
+    pub poor_xp: i32,
+    pub solid_xp: i32,
+    pub great_xp: i32,
+    pub poor_hours: i32,
+    pub solid_hours: i32,
+    pub great_hours: i32,
+}
+
 pub fn xp_for_level(level: i32) -> i32 {
     if level <= 1 {
         0
@@ -127,6 +140,32 @@ impl MinorSkill {
             Self::Crafting => MajorSkill::Intelligence,
         }
     }
+
+    pub fn effects_summary(self) -> &'static str {
+        match self {
+            Self::Vitality => {
+                "Improves survivability themes, harsh travel endurance, and physical staying power."
+            }
+            Self::Agility => "Improves movement-heavy challenges, finesse, and evasive fieldcraft.",
+            Self::Alchemy => "Improves brews, tonics, reagents, and technical concoctions.",
+            Self::Larceny => "Improves theft, lockwork, trap handling, and exploiting openings.",
+            Self::Runecraft => "Improves wards, rune work, catalysts, and arcane preparation.",
+            Self::Crafting => {
+                "Improves practical gearwork, leatherwork, charms, and item assembly."
+            }
+        }
+    }
+
+    pub fn training_focus(self) -> &'static str {
+        match self {
+            Self::Vitality => "Breath control and endurance drills",
+            Self::Agility => "Balance steps and rapid repositioning",
+            Self::Alchemy => "Formula recall and mixing cadence",
+            Self::Larceny => "Precision timing and sleight rhythm",
+            Self::Runecraft => "Glyph focus and pattern recall",
+            Self::Crafting => "Hand rhythm and exact tool placement",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -232,6 +271,41 @@ pub fn major_study_plan_for_xp(skill: MajorSkill, xp: i32, stats: &Stats) -> Stu
     }
 }
 
+pub fn training_session_plan_for_major(
+    skill: MajorSkill,
+    xp: i32,
+    stats: &Stats,
+) -> TrainingSessionPlan {
+    training_session_plan(major_study_plan_for_xp(skill, xp, stats))
+}
+
+pub fn training_session_plan_for_minor(
+    skill: MinorSkill,
+    xp: i32,
+    stats: &Stats,
+) -> TrainingSessionPlan {
+    training_session_plan(study_plan(skill, xp, stats))
+}
+
+fn training_session_plan(plan: StudyPlan) -> TrainingSessionPlan {
+    let beats = if plan.success_chance <= 35 { 6 } else { 5 };
+    let response_ticks = (8 + (plan.success_chance.max(8) as u32 / 7)).clamp(8, 20);
+    let solid_xp = ((plan.success_xp + plan.failure_xp.max(1)) / 2).max(plan.failure_xp + 1);
+    let poor_hours = plan.hours + (plan.hours / 3).max(1);
+    let great_hours = (plan.hours - (plan.hours / 4).max(1)).max(1);
+    TrainingSessionPlan {
+        governing_stat: plan.governing_stat,
+        beats,
+        response_ticks,
+        poor_xp: plan.failure_xp.max(1),
+        solid_xp,
+        great_xp: plan.success_xp,
+        poor_hours,
+        solid_hours: plan.hours,
+        great_hours,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MajorSkill {
     Strength,
@@ -282,6 +356,32 @@ impl MajorSkill {
             Self::Intelligence => "Arcane command that improves spell power and mana craft.",
             Self::Wisdom => "Sacred focus used for rites, healing, and holy resolve.",
             Self::Charisma => "Martial timing and precision that sharpen direct attacks.",
+        }
+    }
+
+    pub fn effects_summary(self) -> &'static str {
+        match self {
+            Self::Charisma => "Affects weapon accuracy, crit pressure, and direct martial tempo.",
+            Self::Strength => "Affects physical damage, stamina-heavy actions, and melee scaling.",
+            Self::Constitution => {
+                "Affects defence, max HP growth, and staying power in long fights."
+            }
+            Self::Dexterity => "Affects ranged pressure, initiative, dodge, and battlefield tempo.",
+            Self::Wisdom => {
+                "Affects healing power, holy resilience, and support-oriented combat value."
+            }
+            Self::Intelligence => "Affects spell power, mana scaling, and arcane effectiveness.",
+        }
+    }
+
+    pub fn training_focus(self) -> &'static str {
+        match self {
+            Self::Charisma => "Tempo drills and attack timing",
+            Self::Strength => "Power bursts and impact control",
+            Self::Constitution => "Guard stance and endurance breathing",
+            Self::Dexterity => "Reaction snaps and ranged rhythm",
+            Self::Wisdom => "Calm focus and restorative cadence",
+            Self::Intelligence => "Arcane concentration and memory drills",
         }
     }
 }
