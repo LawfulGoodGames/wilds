@@ -3,7 +3,8 @@ use super::{
     ability_def, encounter_def,
 };
 use crate::character::{
-    Class, KnownAbility, MinorSkill, ProficiencyData, Race, ResourcePool, SavedCharacter, Stats,
+    Class, KnownAbility, MajorProficiencyData, MajorSkill, MinorSkill, ProficiencyData, Race,
+    ResourcePool, SavedCharacter, Stats, proficiency_xp_for_level,
 };
 use crate::inventory::{Equipment, InventoryItem, gear_package_items};
 
@@ -26,6 +27,23 @@ fn test_character(class: Class) -> SavedCharacter {
             wisdom: 10,
             charisma: 10,
         },
+        major_proficiencies: MajorSkill::ALL
+            .iter()
+            .map(|skill| MajorProficiencyData {
+                kind: *skill,
+                xp: proficiency_xp_for_level(
+                    Stats {
+                        strength: 14,
+                        dexterity: 12,
+                        constitution: 13,
+                        intelligence: 12,
+                        wisdom: 10,
+                        charisma: 10,
+                    }
+                    .by_skill(*skill) as u32,
+                ) as i32,
+            })
+            .collect(),
         resources: ResourcePool::full(60, 30, 30),
         proficiencies: vec![ProficiencyData {
             kind: MinorSkill::Vitality,
@@ -43,6 +61,19 @@ fn test_character(class: Class) -> SavedCharacter {
 fn test_equipment() -> Equipment {
     let mut equipment = Equipment::default();
     for (slot, item) in gear_package_items("Melee Kit") {
+        let slot = crate::inventory::EquipSlot::ALL
+            .iter()
+            .find(|it| it.db_key() == *slot)
+            .copied()
+            .unwrap();
+        equipment.set_slot(slot, Some((*item).to_string()));
+    }
+    equipment
+}
+
+fn equipment_for(gear_name: &str) -> Equipment {
+    let mut equipment = Equipment::default();
+    for (slot, item) in gear_package_items(gear_name) {
         let slot = crate::inventory::EquipSlot::ALL
             .iter()
             .find(|it| it.db_key() == *slot)
@@ -207,4 +238,71 @@ fn equipment_resistances_reduce_incoming_damage() {
     );
 
     assert!(armored_damage < unarmored_damage);
+}
+
+#[test]
+fn spell_abilities_spend_mana() {
+    let mut character = test_character(Class::Mage);
+    character.known_abilities = vec![KnownAbility {
+        ability_id: "ember_burst".to_string(),
+        rank: 1,
+        unlocked: true,
+        cooldown_remaining: 0,
+    }];
+    let mut combat = CombatState::from_character_and_encounter(
+        &character,
+        &equipment_for("Arcane Kit"),
+        &[],
+        "beast_hunt",
+    );
+    force_player_turn(&mut combat);
+    combat.action_tab = ActionTab::Ability;
+    for enemy in &mut combat.enemies {
+        enemy.defense = 1;
+    }
+
+    let mana_before = combat.player.resources.mana;
+    let _ = combat.resolve_player_action(PlayerAction::UseAbility);
+
+    assert!(combat.player.resources.mana < mana_before);
+}
+
+#[test]
+fn magic_weapon_attacks_spend_mana() {
+    let mut character = test_character(Class::Mage);
+    character.known_abilities.clear();
+    let mut combat = CombatState::from_character_and_encounter(
+        &character,
+        &equipment_for("Arcane Kit"),
+        &[],
+        "beast_hunt",
+    );
+    force_player_turn(&mut combat);
+    combat.action_tab = ActionTab::Weapon;
+    for enemy in &mut combat.enemies {
+        enemy.defense = 1;
+    }
+
+    let mana_before = combat.player.resources.mana;
+    let _ = combat.resolve_player_action(PlayerAction::UseWeapon);
+
+    assert!(combat.player.resources.mana < mana_before);
+}
+
+#[test]
+fn combat_tab_cycle_rotates_weapon_ability_item() {
+    let mut combat = CombatState::from_character_and_encounter(
+        &test_character(Class::Warrior),
+        &test_equipment(),
+        &[],
+        "beast_hunt",
+    );
+
+    assert_eq!(combat.action_tab, ActionTab::Weapon);
+    combat.cycle_tab(1);
+    assert_eq!(combat.action_tab, ActionTab::Ability);
+    combat.cycle_tab(1);
+    assert_eq!(combat.action_tab, ActionTab::Item);
+    combat.cycle_tab(1);
+    assert_eq!(combat.action_tab, ActionTab::Weapon);
 }

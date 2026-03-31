@@ -3,7 +3,7 @@ use rand::RngExt;
 use crate::app::{ActiveTraining, App, ProficiencyTarget, TRAINING_TICKS_PER_HOUR};
 use crate::character::{
     MAX_COMBAT_PROFICIENCY_RANK, MAX_PROFICIENCY_LEVEL, MajorSkill, level_progress_pct,
-    major_study_plan, study_plan, xp_to_next_level,
+    major_study_plan_for_xp, study_plan, xp_to_next_level,
 };
 use crate::db;
 use crate::inventory::EquipSlot;
@@ -29,7 +29,7 @@ impl App {
             }
             (
                 ProficiencyTarget::Major(skill),
-                major_study_plan(skill, ch.major_skill(skill), &ch.stats),
+                major_study_plan_for_xp(skill, ch.major_skill_xp(skill), &ch.stats),
             )
         } else {
             let skill_idx = (self.character_cursor - MajorSkill::ALL.len())
@@ -81,7 +81,8 @@ impl App {
             match training.target {
                 ProficiencyTarget::Major(skill) => {
                     let before = ch.major_skill(skill);
-                    ch.stats.add_skill(skill, gain);
+                    let new_xp = ch.major_skill_xp(skill) + gain;
+                    ch.set_major_skill_xp(skill, new_xp);
                     let after = ch.major_skill(skill);
                     Some((ch.id, ProficiencyTarget::Major(skill), before, after, None))
                 }

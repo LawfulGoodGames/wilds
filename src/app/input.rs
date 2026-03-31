@@ -153,7 +153,8 @@ impl App {
                 KeyCode::Down | KeyCode::Char('j') => {
                     self.events.send(AppEvent::CombatCycleOptionDown)
                 }
-                KeyCode::Tab => self.events.send(AppEvent::CombatCycleTarget),
+                KeyCode::Tab => self.events.send(AppEvent::CombatNextTab),
+                KeyCode::Char('t') => self.events.send(AppEvent::CombatCycleTarget),
                 KeyCode::Enter | KeyCode::Char('a') => {
                     self.events.send(AppEvent::CombatUseSelected)
                 }
@@ -306,6 +307,12 @@ impl App {
     pub(super) fn set_combat_tab(&mut self, tab: ActionTab) {
         if let Some(combat) = self.combat.as_mut() {
             combat.set_tab(tab);
+        }
+    }
+
+    pub(super) fn cycle_combat_tab(&mut self, dir: i32) {
+        if let Some(combat) = self.combat.as_mut() {
+            combat.cycle_tab(dir);
         }
     }
 

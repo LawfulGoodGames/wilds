@@ -190,7 +190,7 @@ impl Race {
             .iter()
             .copied()
             .find(|race| race.name() == name)
-            .unwrap_or(Self::Human)
+            .unwrap_or_else(|| panic!("Unknown race stored in save data: {name}"))
     }
 }
 
@@ -252,7 +252,7 @@ impl Class {
             .iter()
             .copied()
             .find(|class| class.name() == name)
-            .unwrap_or(Self::Warrior)
+            .unwrap_or_else(|| panic!("Unknown class stored in save data: {name}"))
     }
 }
 
@@ -419,6 +419,11 @@ impl CharacterCreation {
 
     pub fn starting_proficiency_xp(&self, skill: MinorSkill) -> i32 {
         let total_rank = self.final_minor_proficiency_rank(skill);
+        proficiency_xp_for_level(total_rank as u32) as i32
+    }
+
+    pub fn starting_major_proficiency_xp(&self, skill: MajorSkill) -> i32 {
+        let total_rank = self.final_stats().by_skill(skill);
         proficiency_xp_for_level(total_rank as u32) as i32
     }
 

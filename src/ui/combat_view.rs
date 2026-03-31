@@ -65,11 +65,12 @@ pub fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
             combat.player.defense, combat.player.initiative
         )),
         Line::from(format!(
-            "Resist P:{} F:{} I:{} L:{} H:{} S:{}",
+            "Resist P:{} F:{} I:{} L:{} X:{} H:{} S:{}",
             combat.player.resistances.physical,
             combat.player.resistances.fire,
             combat.player.resistances.frost,
             combat.player.resistances.lightning,
+            combat.player.resistances.poison,
             combat.player.resistances.holy,
             combat.player.resistances.shadow
         )),
@@ -154,6 +155,7 @@ pub fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
         .collect::<Vec<_>>();
     let mut actions = vec![
         Line::from(Span::styled("[Tab] switch action type", dim_style())),
+        Line::from(Span::styled("[t] cycle target", dim_style())),
         Line::from(tabs),
         Line::from(""),
     ];
@@ -165,12 +167,22 @@ pub fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
                 } else {
                     normal_style()
                 };
+                let cost_suffix = if matches!(
+                    combat.player.weapon_kind,
+                    Some(crate::inventory::WeaponKind::Magic)
+                ) {
+                    let cost = ((attack.min_damage + attack.max_damage) / 2 / 3).clamp(2, 5);
+                    format!("  Mana {cost}")
+                } else {
+                    String::new()
+                };
                 actions.push(Line::from(Span::styled(
                     format!(
-                        "{}  Hit +{}  Dmg {}",
+                        "{}  Hit +{}  Dmg {}{}",
                         attack.name,
                         attack.accuracy_bonus,
-                        attack.damage_range_label()
+                        attack.damage_range_label(),
+                        cost_suffix
                     ),
                     style,
                 )));
@@ -186,7 +198,20 @@ pub fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
                 let ability_name = ability_def(ability)
                     .map(|def| def.name)
                     .unwrap_or(ability.as_str());
-                actions.push(Line::from(Span::styled(ability_name.to_string(), style)));
+                let cost_label = ability_def(ability)
+                    .and_then(|def| {
+                        def.resource_kind.map(|kind| match kind {
+                            crate::combat::ResourceKind::Mana => format!("  Mana {}", def.cost),
+                            crate::combat::ResourceKind::Stamina => {
+                                format!("  Stam {}", def.cost)
+                            }
+                        })
+                    })
+                    .unwrap_or_default();
+                actions.push(Line::from(Span::styled(
+                    format!("{ability_name}{cost_label}"),
+                    style,
+                )));
             }
         }
         ActionTab::Item => {
@@ -256,7 +281,7 @@ pub fn render_combat(app: &App, area: Rect, buf: &mut Buffer) {
             .render(footer[0], buf);
     }
     hint_bar(
-        "1 weapon  2 ability  3 item    ↑ ↓ choose    Tab target    Enter use    d defend    f flee",
+        "Tab next action  1 weapon  2 ability  3 item  t target  ↑ ↓ choose  Enter use  d defend  f flee",
         footer[1],
         buf,
     );

@@ -72,15 +72,32 @@ impl CombatState {
             ));
             return;
         };
+        let (base_accuracy, damage_bonus, damage_type, resource_kind, cost) =
+            self.player_weapon_profile(attack);
+        if !self.can_pay_cost(resource_kind, cost) {
+            let resource_name = match resource_kind {
+                Some(ResourceKind::Mana) => "mana",
+                Some(ResourceKind::Stamina) => "stamina",
+                None => "resource",
+            };
+            self.log.push(CombatLogEvent::Info(format!(
+                "Not enough {resource_name} for {}.",
+                attack.name
+            )));
+            return;
+        }
+        self.pay_cost(resource_kind, cost);
         self.player_weapon_attacks += 1;
         self.resolve_attack(
             true,
             None,
             attack.name,
+            base_accuracy,
             attack.accuracy_bonus,
             attack.min_damage,
             attack.max_damage,
-            DamageType::Physical,
+            damage_bonus,
+            damage_type,
             None,
             None,
             rng,
@@ -135,9 +152,11 @@ impl CombatState {
             true,
             Some(ability.name),
             ability.name,
+            self.player_accuracy_for_skill(ability.scaling_stat),
             ability.accuracy_bonus,
             ability.damage_min,
             ability.damage_max,
+            self.player_damage_bonus_for_ability(ability),
             ability.damage_type,
             ability.apply_status,
             ability.self_status,
@@ -222,5 +241,74 @@ impl CombatState {
                 self.apply_status_to_player(StatusKind::Guard, 1, amount, item_name);
             }
         }
+    }
+
+    fn player_weapon_profile(
+        &self,
+        attack: AttackOption,
+    ) -> (i32, i32, DamageType, Option<ResourceKind>, i32) {
+        match self.player.weapon_kind.unwrap_or(WeaponKind::Melee) {
+            WeaponKind::Melee => (
+                self.player.attack_bonus,
+                self.player.strength_bonus.max(0),
+                DamageType::Physical,
+                None,
+                0,
+            ),
+            WeaponKind::Ranged => (
+                self.player.ranged_attack_bonus,
+                (self.player.ranged_attack_bonus / 2).max(0),
+                DamageType::Physical,
+                None,
+                0,
+            ),
+            WeaponKind::Magic => (
+                self.player.magic_attack_bonus,
+                (self.player.spell_power / 3).max(1),
+                Self::weapon_damage_type(attack.name),
+                Some(ResourceKind::Mana),
+                Self::weapon_mana_cost(attack),
+            ),
+        }
+    }
+
+    fn player_accuracy_for_skill(&self, skill: MajorSkill) -> i32 {
+        match skill {
+            MajorSkill::Strength | MajorSkill::Charisma => self.player.attack_bonus,
+            MajorSkill::Dexterity => self.player.ranged_attack_bonus,
+            MajorSkill::Intelligence => self.player.magic_attack_bonus,
+            MajorSkill::Wisdom => self.player.prayer_attack_bonus,
+            MajorSkill::Constitution => self.player.attack_bonus,
+        }
+    }
+
+    fn player_damage_bonus_for_ability(&self, ability: &AbilityDef) -> i32 {
+        match ability.damage_type {
+            DamageType::Physical => self.player.strength_bonus.max(0),
+            DamageType::Holy => (self.player.healing_power / 3).max(1),
+            DamageType::Fire
+            | DamageType::Frost
+            | DamageType::Lightning
+            | DamageType::Poison
+            | DamageType::Shadow => (self.player.spell_power / 3).max(1),
+        }
+    }
+
+    fn weapon_damage_type(name: &str) -> DamageType {
+        let lower = name.to_ascii_lowercase();
+        if lower.contains("frost") {
+            DamageType::Frost
+        } else if lower.contains("ember") || lower.contains("fire") {
+            DamageType::Fire
+        } else if lower.contains("storm") || lower.contains("spark") || lower.contains("arcane") {
+            DamageType::Lightning
+        } else {
+            DamageType::Fire
+        }
+    }
+
+    fn weapon_mana_cost(attack: AttackOption) -> i32 {
+        let average = (attack.min_damage + attack.max_damage) / 2;
+        (average / 3).clamp(2, 5)
     }
 }

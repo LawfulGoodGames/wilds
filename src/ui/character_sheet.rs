@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, BorderType, Paragraph, Widget},
 };
 
-use crate::app::{App, CharacterTab, active_level_progress, active_xp_to_next};
+use crate::app::{App, CharacterTab};
 use crate::character::MajorSkill;
 use crate::combat::ability_def;
 use crate::inventory::{EquipSlot, find_def};
@@ -143,7 +143,11 @@ pub fn render_character_sheet(app: &App, area: Rect, buf: &mut Buffer) {
                 let major = MajorSkill::ALL[selected_idx];
                 let score = ch.major_skill(major);
                 let modifier = ch.stats.modifier(major);
-                let plan = crate::character::major_study_plan(major, score, &ch.stats);
+                let plan = crate::character::major_study_plan_for_xp(
+                    major,
+                    ch.major_skill_xp(major),
+                    &ch.stats,
+                );
                 let mut lines = vec![
                     Line::from(Span::styled(
                         major.full_name(),
@@ -152,28 +156,26 @@ pub fn render_character_sheet(app: &App, area: Rect, buf: &mut Buffer) {
                     Line::from(""),
                     Line::from(major.description()),
                     Line::from(""),
-                    Line::from(format!("Rank {}  Modifier {:+}", score, modifier)),
-                    Line::from(""),
                     Line::from(format!(
-                        "Level {}  XP {}  Next {}",
-                        ch.level,
-                        ch.xp,
-                        active_xp_to_next(app)
-                    )),
-                    Line::from(format!(
-                        "Unspent proficiency points: {}",
-                        ch.unspent_stat_points
+                        "Rank {}  XP to next {}  Modifier {:+}",
+                        score,
+                        ch.major_skill_xp_to_next(major),
+                        modifier
                     )),
                     Line::from(""),
                     Line::from(Span::styled(
-                        progress_bar(active_level_progress(app), 28),
+                        progress_bar(ch.major_skill_progress(major), 28),
                         Style::default().fg(Color::Cyan),
                     )),
                     Line::from(""),
                     Line::from(format!("Study time: {}h", plan.hours)),
                     Line::from(format!("Success chance: {}%", plan.success_chance)),
-                    Line::from(format!("On success: +{} rank", plan.success_xp)),
-                    Line::from(format!("On setback: +{} rank", plan.failure_xp)),
+                    Line::from(format!("On success: +{} XP", plan.success_xp)),
+                    Line::from(format!("On setback: +{} XP", plan.failure_xp)),
+                    Line::from(format!(
+                        "Governing stat: {}",
+                        plan.governing_stat.full_name()
+                    )),
                 ];
                 if let Some(training) = &app.active_training {
                     if training.target == crate::app::ProficiencyTarget::Major(major) {

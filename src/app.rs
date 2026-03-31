@@ -295,6 +295,7 @@ impl App {
             AppEvent::CombatTabWeapon => self.set_combat_tab(ActionTab::Weapon),
             AppEvent::CombatTabAbility => self.set_combat_tab(ActionTab::Ability),
             AppEvent::CombatTabItem => self.set_combat_tab(ActionTab::Item),
+            AppEvent::CombatNextTab => self.cycle_combat_tab(1),
             AppEvent::CombatCycleOptionUp => self.cycle_combat_option(-1),
             AppEvent::CombatCycleOptionDown => self.cycle_combat_option(1),
             AppEvent::CombatCycleTarget => self.cycle_combat_target(1),

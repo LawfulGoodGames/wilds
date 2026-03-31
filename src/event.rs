@@ -39,6 +39,7 @@ pub enum AppEvent {
     CombatTabWeapon,
     CombatTabAbility,
     CombatTabItem,
+    CombatNextTab,
     CombatCycleOptionUp,
     CombatCycleOptionDown,
     CombatCycleTarget,

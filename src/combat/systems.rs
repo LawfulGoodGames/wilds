@@ -6,9 +6,11 @@ impl CombatState {
         player_is_actor: bool,
         ability_name: Option<&str>,
         label: &str,
+        base_accuracy: i32,
         accuracy_bonus: i32,
         min_damage: i32,
         max_damage: i32,
+        damage_bonus: i32,
         damage_type: DamageType,
         apply_status: Option<(StatusKind, i32, i32)>,
         self_status: Option<(StatusKind, i32, i32)>,
@@ -25,7 +27,7 @@ impl CombatState {
             ));
             return;
         }
-        let accuracy = self.player.attack_bonus
+        let accuracy = base_accuracy
             + accuracy_bonus
             + if self.player.has_status(StatusKind::Weakness) {
                 -2
@@ -39,12 +41,7 @@ impl CombatState {
         let hit = roll != 1 && (roll == 20 || total >= defense);
         let crit = hit && rng.random_range(1..=100) <= self.player.crit_chance.max(0);
         let mut damage = if hit {
-            rng.random_range(min_damage..=max_damage)
-                + if damage_type == DamageType::Physical {
-                    self.player.attack_bonus / 2
-                } else {
-                    self.player.spell_power / 3
-                }
+            rng.random_range(min_damage..=max_damage) + damage_bonus.max(0)
         } else {
             0
         };

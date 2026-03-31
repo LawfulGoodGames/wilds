@@ -1,7 +1,8 @@
 use crate::achievements::AchievementState;
 use crate::character::{
-    CharacterCreation, Class, KnownAbility, MinorSkill, ProficiencyData, Race, ResourcePool,
-    SavedCharacter, Stats, ability_unlock_level, class_progression, mana_growth, stamina_growth,
+    CharacterCreation, Class, KnownAbility, MajorProficiencyData, MajorSkill, MinorSkill,
+    ProficiencyData, Race, ResourcePool, SavedCharacter, Stats, ability_unlock_level,
+    class_progression, mana_growth, stamina_growth,
 };
 use crate::inventory::{EquipSlot, Equipment, InventoryItem, gear_package_items};
 use crate::world::{QuestProgress, WorldState};
@@ -41,20 +42,13 @@ pub async fn save_character(
     let id = sqlx::query(
         "INSERT INTO characters
         (name, race, class, gear, level, xp, gold, unspent_stat_points,
-         str_stat, dex_stat, con_stat, int_stat, wis_stat, cha_stat,
          hp, max_hp, mana, max_mana, stamina, max_stamina)
-         VALUES (?1, ?2, ?3, ?4, 1, 0, 30, 0, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?12, ?13, ?13)",
+         VALUES (?1, ?2, ?3, ?4, 1, 0, 30, 0, ?5, ?5, ?6, ?6, ?7, ?7)",
     )
     .bind(&creation.name)
     .bind(creation.selected_race().name())
     .bind(class.name())
     .bind(creation.selected_gear().name())
-    .bind(stats.strength)
-    .bind(stats.dexterity)
-    .bind(stats.constitution)
-    .bind(stats.intelligence)
-    .bind(stats.wisdom)
-    .bind(stats.charisma)
     .bind(max_hp)
     .bind(max_mana)
     .bind(max_stamina)
@@ -69,6 +63,16 @@ pub async fn save_character(
         .bind(id)
         .bind(skill.name())
         .bind(creation.starting_proficiency_xp(skill))
+        .execute(pool)
+        .await?;
+    }
+    for skill in MajorSkill::ALL {
+        sqlx::query(
+            "INSERT INTO character_proficiencies (character_id, skill_name, xp) VALUES (?1, ?2, ?3)",
+        )
+        .bind(id)
+        .bind(skill.full_name())
+        .bind(creation.starting_major_proficiency_xp(skill))
         .execute(pool)
         .await?;
     }
@@ -123,20 +127,13 @@ pub async fn save_character_state(
     sqlx::query(
         "UPDATE characters SET
             level = ?1, xp = ?2, gold = ?3, unspent_stat_points = ?4,
-            str_stat = ?5, dex_stat = ?6, con_stat = ?7, int_stat = ?8, wis_stat = ?9, cha_stat = ?10,
-            hp = ?11, max_hp = ?12, mana = ?13, max_mana = ?14, stamina = ?15, max_stamina = ?16
-         WHERE id = ?17",
+            hp = ?5, max_hp = ?6, mana = ?7, max_mana = ?8, stamina = ?9, max_stamina = ?10
+         WHERE id = ?11",
     )
     .bind(character.level)
     .bind(character.xp)
     .bind(character.gold)
     .bind(character.unspent_stat_points)
-    .bind(character.stats.strength)
-    .bind(character.stats.dexterity)
-    .bind(character.stats.constitution)
-    .bind(character.stats.intelligence)
-    .bind(character.stats.wisdom)
-    .bind(character.stats.charisma)
     .bind(character.resources.hp)
     .bind(character.resources.max_hp)
     .bind(character.resources.mana)
@@ -159,6 +156,28 @@ pub async fn save_character_state(
         .bind(ability.rank)
         .bind(i32::from(ability.unlocked))
         .bind(ability.cooldown_remaining)
+        .execute(pool)
+        .await?;
+    }
+    for skill in &character.major_proficiencies {
+        sqlx::query(
+            "INSERT INTO character_proficiencies (character_id, skill_name, xp) VALUES (?1, ?2, ?3)
+             ON CONFLICT(character_id, skill_name) DO UPDATE SET xp = excluded.xp",
+        )
+        .bind(character.id)
+        .bind(skill.kind.full_name())
+        .bind(skill.xp)
+        .execute(pool)
+        .await?;
+    }
+    for skill in &character.proficiencies {
+        sqlx::query(
+            "INSERT INTO character_proficiencies (character_id, skill_name, xp) VALUES (?1, ?2, ?3)
+             ON CONFLICT(character_id, skill_name) DO UPDATE SET xp = excluded.xp",
+        )
+        .bind(character.id)
+        .bind(skill.kind.name())
+        .bind(skill.xp)
         .execute(pool)
         .await?;
     }
@@ -463,6 +482,7 @@ async fn row_to_character(
     row: &SqliteRow,
 ) -> color_eyre::Result<SavedCharacter> {
     let id = row.get("id");
+    let proficiency_map = load_proficiency_map(pool, id).await?;
     let class = Class::from_name(row.get::<String, _>("class").as_str());
     let mut known_abilities = load_abilities(pool, id).await?;
     for (_, ability_id) in class_progression(class)
@@ -488,7 +508,8 @@ async fn row_to_character(
             .then(a.ability_id.cmp(&b.ability_id))
     });
 
-    Ok(SavedCharacter {
+    let major_proficiencies = load_major_proficiencies(&proficiency_map)?;
+    let mut character = SavedCharacter {
         id,
         name: row.get("name"),
         race: Race::from_name(row.get::<String, _>("race").as_str()),
@@ -498,14 +519,8 @@ async fn row_to_character(
         xp: row.get::<i64, _>("xp") as i32,
         gold: row.get::<i64, _>("gold") as i32,
         unspent_stat_points: row.get::<i64, _>("unspent_stat_points") as i32,
-        stats: Stats {
-            strength: row.get::<i64, _>("str_stat") as i32,
-            dexterity: row.get::<i64, _>("dex_stat") as i32,
-            constitution: row.get::<i64, _>("con_stat") as i32,
-            intelligence: row.get::<i64, _>("int_stat") as i32,
-            wisdom: row.get::<i64, _>("wis_stat") as i32,
-            charisma: row.get::<i64, _>("cha_stat") as i32,
-        },
+        stats: Stats::default(),
+        major_proficiencies,
         resources: ResourcePool {
             hp: row.get::<i64, _>("hp") as i32,
             max_hp: row.get::<i64, _>("max_hp") as i32,
@@ -514,21 +529,23 @@ async fn row_to_character(
             stamina: row.get::<i64, _>("stamina") as i32,
             max_stamina: row.get::<i64, _>("max_stamina") as i32,
         },
-        proficiencies: load_proficiencies(pool, id).await?,
+        proficiencies: load_proficiencies_from_map(&proficiency_map),
         known_abilities,
-    })
+    };
+    character.sync_stats_from_major_proficiencies();
+    Ok(character)
 }
 
-async fn load_proficiencies(
+async fn load_proficiency_map(
     pool: &sqlx::SqlitePool,
     character_id: i64,
-) -> color_eyre::Result<Vec<ProficiencyData>> {
+) -> color_eyre::Result<HashMap<String, i32>> {
     let rows =
         sqlx::query("SELECT skill_name, xp FROM character_proficiencies WHERE character_id = ?1")
             .bind(character_id)
             .fetch_all(pool)
             .await?;
-    let map: HashMap<String, i32> = rows
+    Ok(rows
         .into_iter()
         .map(|row| {
             (
@@ -536,14 +553,31 @@ async fn load_proficiencies(
                 row.get::<i64, _>("xp") as i32,
             )
         })
-        .collect();
-    Ok(MinorSkill::ALL
+        .collect())
+}
+
+fn load_proficiencies_from_map(map: &HashMap<String, i32>) -> Vec<ProficiencyData> {
+    MinorSkill::ALL
         .iter()
         .map(|skill| ProficiencyData {
             kind: *skill,
             xp: *map.get(skill.name()).unwrap_or(&0),
         })
-        .collect())
+        .collect()
+}
+
+fn load_major_proficiencies(
+    map: &HashMap<String, i32>,
+) -> color_eyre::Result<Vec<MajorProficiencyData>> {
+    MajorSkill::ALL
+        .iter()
+        .map(|skill| {
+            let xp = map.get(skill.full_name()).copied().ok_or_else(|| {
+                color_eyre::eyre::eyre!("Missing major proficiency row: {}", skill.full_name())
+            })?;
+            Ok(MajorProficiencyData { kind: *skill, xp })
+        })
+        .collect()
 }
 
 async fn load_abilities(

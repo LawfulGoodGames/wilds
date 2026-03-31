@@ -83,6 +83,13 @@ impl Equipment {
             .map(|def| def.attacks.to_vec())
             .unwrap_or_default()
     }
+
+    pub fn weapon_kind(&self) -> Option<super::WeaponKind> {
+        self.weapon
+            .as_deref()
+            .and_then(find_def)
+            .and_then(|def| def.weapon_kind)
+    }
 }
 
 #[derive(Debug, Clone)]

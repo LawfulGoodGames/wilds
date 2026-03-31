@@ -154,6 +154,31 @@ impl ProficiencyData {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct MajorProficiencyData {
+    pub kind: MajorSkill,
+    pub xp: i32,
+}
+
+impl MajorProficiencyData {
+    pub fn level(&self) -> u32 {
+        proficiency_level_from_xp(self.xp)
+    }
+
+    pub fn progress(&self) -> f64 {
+        proficiency_progress_pct(self.xp)
+    }
+
+    pub fn xp_to_next(&self) -> u32 {
+        let level = self.level();
+        if level >= MAX_PROFICIENCY_LEVEL {
+            0
+        } else {
+            proficiency_xp_for_level(level + 1).saturating_sub(self.xp as u32)
+        }
+    }
+}
+
 pub fn study_plan(skill: MinorSkill, xp: i32, stats: &Stats) -> StudyPlan {
     let level = proficiency_level_from_xp(xp) as i32;
     let aptitude = stats.modifier(skill.governing_stat());
@@ -179,20 +204,30 @@ pub fn study_plan(skill: MinorSkill, xp: i32, stats: &Stats) -> StudyPlan {
 }
 
 pub fn major_study_plan(skill: MajorSkill, current_rank: i32, stats: &Stats) -> StudyPlan {
+    let level = current_rank.clamp(1, MAX_PROFICIENCY_LEVEL as i32) as u32;
+    major_study_plan_for_xp(skill, proficiency_xp_for_level(level) as i32, stats)
+}
+
+pub fn major_study_plan_for_xp(skill: MajorSkill, xp: i32, stats: &Stats) -> StudyPlan {
+    let level = proficiency_level_from_xp(xp) as i32;
     let aptitude = stats.modifier(skill);
-    let success_chance = (92 - current_rank * 4 + aptitude * 4).clamp(8, 92);
-    let hours = match current_rank {
-        ..=9 => 4,
-        10..=12 => 8,
-        13..=15 => 14,
-        16..=18 => 22,
-        _ => 32,
+    let success_chance = (88 - level * 4 + aptitude * 5).clamp(8, 92);
+    let hours = match level {
+        1..=9 => 4,
+        10..=24 => 8,
+        25..=39 => 12,
+        40..=59 => 18,
+        60..=79 => 28,
+        80..=94 => 40,
+        _ => 55,
     };
+    let success_xp = (20 + aptitude.max(0) * 3 + (level / 8)).clamp(8, 36);
+    let failure_xp = (success_xp / 5).max(1);
     StudyPlan {
         hours,
         success_chance,
-        success_xp: 1,
-        failure_xp: 0,
+        success_xp,
+        failure_xp,
         governing_stat: skill,
     }
 }

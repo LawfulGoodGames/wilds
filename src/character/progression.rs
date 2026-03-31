@@ -1,5 +1,8 @@
 use super::catalog::{CharacterClassProgression, Class, Race};
-use super::proficiencies::{MajorSkill, ProficiencyData, Stats, level_from_xp};
+use super::proficiencies::{
+    MajorProficiencyData, MajorSkill, ProficiencyData, Stats, level_from_xp,
+    proficiency_level_from_xp,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResourcePool {
@@ -32,6 +35,10 @@ pub struct DerivedStats {
     pub dodge: i32,
     pub spell_power: i32,
     pub healing_power: i32,
+    pub melee_accuracy: i32,
+    pub ranged_accuracy: i32,
+    pub magic_accuracy: i32,
+    pub prayer_accuracy: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +71,7 @@ pub struct SavedCharacter {
     pub gold: i32,
     pub unspent_stat_points: i32,
     pub stats: Stats,
+    pub major_proficiencies: Vec<MajorProficiencyData>,
     pub resources: ResourcePool,
     pub proficiencies: Vec<ProficiencyData>,
     pub known_abilities: Vec<KnownAbility>,
@@ -71,13 +79,78 @@ pub struct SavedCharacter {
 
 impl SavedCharacter {
     pub fn major_skill(&self, kind: MajorSkill) -> i32 {
-        self.stats.by_skill(kind)
+        self.major_proficiencies
+            .iter()
+            .find(|skill| skill.kind == kind)
+            .map(|skill| skill.level() as i32)
+            .unwrap_or_else(|| panic!("Missing major proficiency data for {}", kind.full_name()))
+    }
+
+    pub fn major_skill_xp(&self, kind: MajorSkill) -> i32 {
+        self.major_proficiencies
+            .iter()
+            .find(|skill| skill.kind == kind)
+            .map(|skill| skill.xp)
+            .unwrap_or_else(|| panic!("Missing major proficiency data for {}", kind.full_name()))
+    }
+
+    pub fn major_skill_progress(&self, kind: MajorSkill) -> f64 {
+        self.major_proficiencies
+            .iter()
+            .find(|skill| skill.kind == kind)
+            .map(|skill| skill.progress())
+            .unwrap_or_else(|| panic!("Missing major proficiency data for {}", kind.full_name()))
+    }
+
+    pub fn major_skill_xp_to_next(&self, kind: MajorSkill) -> u32 {
+        self.major_proficiencies
+            .iter()
+            .find(|skill| skill.kind == kind)
+            .map(|skill| skill.xp_to_next())
+            .unwrap_or_else(|| panic!("Missing major proficiency data for {}", kind.full_name()))
+    }
+
+    pub fn set_major_skill_xp(&mut self, kind: MajorSkill, xp: i32) {
+        if let Some(skill) = self
+            .major_proficiencies
+            .iter_mut()
+            .find(|skill| skill.kind == kind)
+        {
+            skill.xp = xp.max(0);
+        } else {
+            self.major_proficiencies.push(MajorProficiencyData {
+                kind,
+                xp: xp.max(0),
+            });
+        }
+        self.sync_stats_from_major_proficiencies();
+    }
+
+    pub fn sync_stats_from_major_proficiencies(&mut self) {
+        for skill in MajorSkill::ALL {
+            let level = self
+                .major_proficiencies
+                .iter()
+                .find(|entry| entry.kind == skill)
+                .map(|entry| proficiency_level_from_xp(entry.xp) as i32)
+                .unwrap_or_else(|| {
+                    panic!("Missing major proficiency data for {}", skill.full_name())
+                });
+            match skill {
+                MajorSkill::Strength => self.stats.strength = level,
+                MajorSkill::Dexterity => self.stats.dexterity = level,
+                MajorSkill::Constitution => self.stats.constitution = level,
+                MajorSkill::Intelligence => self.stats.intelligence = level,
+                MajorSkill::Wisdom => self.stats.wisdom = level,
+                MajorSkill::Charisma => self.stats.charisma = level,
+            }
+        }
     }
 
     pub fn derived_stats(
         &self,
         equipment_armor: i32,
-        _attack_bonus: i32,
+        attack_bonus: i32,
         spell_power_bonus: i32,
         crit_bonus: i32,
         initiative_bonus: i32,
@@ -94,6 +167,10 @@ impl SavedCharacter {
             dodge: ranged * 2 + self.level / 2,
             spell_power: magic * 2 + spell_power_bonus + self.level,
             healing_power: prayer * 2 + magic.max(0) + self.level / 2,
+            melee_accuracy: attack + attack_bonus + self.level / 3,
+            ranged_accuracy: ranged + attack_bonus + self.level / 3,
+            magic_accuracy: magic + attack_bonus + spell_power_bonus / 2 + self.level / 3,
+            prayer_accuracy: prayer + attack_bonus + self.level / 3,
         }
     }
 

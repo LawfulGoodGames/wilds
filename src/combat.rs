@@ -240,10 +240,16 @@ pub struct CombatantSnapshot {
     pub defense: i32,
     pub initiative: i32,
     pub attack_bonus: i32,
+    pub ranged_attack_bonus: i32,
+    pub magic_attack_bonus: i32,
+    pub prayer_attack_bonus: i32,
     pub spell_power: i32,
+    pub healing_power: i32,
+    pub strength_bonus: i32,
     pub crit_chance: i32,
     pub dodge: i32,
     pub resistances: ResistanceProfile,
+    pub weapon_kind: Option<WeaponKind>,
     pub weapon_attacks: Vec<AttackOption>,
     pub ability_ids: Vec<String>,
     pub statuses: Vec<StatusEffect>,
@@ -373,15 +379,17 @@ impl CombatState {
             resources: character.resources,
             defense: derived.defense,
             initiative: derived.initiative,
-            attack_bonus: eq_stats.attack_bonus
-                + character
-                    .stats
-                    .modifier(MajorSkill::Charisma)
-                    .max(character.stats.modifier(MajorSkill::Dexterity)),
+            attack_bonus: derived.melee_accuracy,
+            ranged_attack_bonus: derived.ranged_accuracy,
+            magic_attack_bonus: derived.magic_accuracy,
+            prayer_attack_bonus: derived.prayer_accuracy,
             spell_power: derived.spell_power,
+            healing_power: derived.healing_power,
+            strength_bonus: character.stats.modifier(MajorSkill::Strength),
             crit_chance: derived.crit_chance,
             dodge: derived.dodge,
             resistances: eq_stats.resistances,
+            weapon_kind: equipment.weapon_kind(),
             weapon_attacks: equipment.attack_options(),
             ability_ids: known_abilities,
             statuses: vec![],
@@ -407,10 +415,16 @@ impl CombatState {
                     defense: def.defense,
                     initiative: def.initiative,
                     attack_bonus: def.attack_bonus,
+                    ranged_attack_bonus: def.attack_bonus,
+                    magic_attack_bonus: def.attack_bonus,
+                    prayer_attack_bonus: def.attack_bonus,
                     spell_power: def.level + if def.role == EnemyRole::Caster { 4 } else { 0 },
+                    healing_power: def.level,
+                    strength_bonus: def.level / 2,
                     crit_chance: 3 + def.level,
                     dodge: 2 + def.level,
                     resistances: ResistanceProfile::default(),
+                    weapon_kind: Some(def.weapon_kind),
                     weapon_attacks: vec![AttackOption {
                         name: "Attack",
                         accuracy_bonus: def.attack_bonus,
@@ -574,5 +588,15 @@ impl CombatState {
 
     pub fn set_tab(&mut self, tab: ActionTab) {
         self.action_tab = tab;
+    }
+
+    pub fn cycle_tab(&mut self, dir: i32) {
+        let tabs = [ActionTab::Weapon, ActionTab::Ability, ActionTab::Item];
+        let current = tabs
+            .iter()
+            .position(|tab| *tab == self.action_tab)
+            .unwrap_or(0);
+        let next = (current as i32 + dir).rem_euclid(tabs.len() as i32) as usize;
+        self.action_tab = tabs[next];
     }
 }
