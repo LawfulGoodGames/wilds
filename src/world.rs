@@ -7,13 +7,15 @@ pub enum AreaId {
     WhisperingWoods,
     SunkenRoad,
     AshenBarrow,
+    BlightedMoor,
 }
 
 impl AreaId {
-    pub const ALL: [AreaId; 3] = [
+    pub const ALL: [AreaId; 4] = [
         AreaId::WhisperingWoods,
         AreaId::SunkenRoad,
         AreaId::AshenBarrow,
+        AreaId::BlightedMoor,
     ];
 
     pub fn id(self) -> &'static str {
@@ -21,6 +23,7 @@ impl AreaId {
             Self::WhisperingWoods => "whispering_woods",
             Self::SunkenRoad => "sunken_road",
             Self::AshenBarrow => "ashen_barrow",
+            Self::BlightedMoor => "blighted_moor",
         }
     }
 
@@ -29,6 +32,7 @@ impl AreaId {
             Self::WhisperingWoods => "Whispering Woods",
             Self::SunkenRoad => "Sunken Road",
             Self::AshenBarrow => "Ashen Barrow",
+            Self::BlightedMoor => "Blighted Moor",
         }
     }
 }
@@ -115,10 +119,15 @@ pub enum QuestId {
     TheFirstDead,
     WordToTheCaptain,
     CrownInCinders,
+    RumorsInTheHearth,
+    TheBlightedMoor,
+    ServantsOfAsh,
+    TheKingsCipher,
+    TheExiledThrone,
 }
 
 impl QuestId {
-    pub const ALL: [QuestId; 10] = [
+    pub const ALL: [QuestId; 15] = [
         QuestId::LanternsInTheRain,
         QuestId::MissingOnTheWatch,
         QuestId::ReportToMira,
@@ -129,6 +138,11 @@ impl QuestId {
         QuestId::TheFirstDead,
         QuestId::WordToTheCaptain,
         QuestId::CrownInCinders,
+        QuestId::RumorsInTheHearth,
+        QuestId::TheBlightedMoor,
+        QuestId::ServantsOfAsh,
+        QuestId::TheKingsCipher,
+        QuestId::TheExiledThrone,
     ];
 
     pub fn id(self) -> &'static str {
@@ -143,6 +157,11 @@ impl QuestId {
             Self::TheFirstDead => "the_first_dead",
             Self::WordToTheCaptain => "word_to_the_captain",
             Self::CrownInCinders => "crown_in_cinders",
+            Self::RumorsInTheHearth => "rumors_in_the_hearth",
+            Self::TheBlightedMoor => "the_blighted_moor",
+            Self::ServantsOfAsh => "servants_of_ash",
+            Self::TheKingsCipher => "the_kings_cipher",
+            Self::TheExiledThrone => "the_exiled_throne",
         }
     }
 }
@@ -541,6 +560,14 @@ pub const AREAS: &[AreaDef] = &[
         encounters: &["undead_patrol", "barrow_rites"],
         event_text: "Cold wind spills from the cracked tomb door, carrying ash and whispers.",
     },
+    AreaDef {
+        id: AreaId::BlightedMoor,
+        name: "Blighted Moor",
+        description: "A rotting marshland east of the barrow, fouled by the Mage King's lingering magic.",
+        danger: "High",
+        encounters: &["moor_shamble", "moor_channeling"],
+        event_text: "Black water seeps between dead reeds, and the ground pulses with a faint, wrong warmth.",
+    },
 ];
 
 pub fn quest_def(id: &str) -> Option<&'static QuestDef> {
@@ -584,6 +611,7 @@ pub fn quest_item_drop_is_relevant(state: &WorldState, item_type: &str) -> bool 
     match item_type {
         "old_map" => !state.has_completed(QuestId::RoadsideLedger),
         "bandit_seal" => !state.has_completed(QuestId::AshOnTheWax),
+        "cipher_scroll" => !state.has_completed(QuestId::TheKingsCipher),
         _ => true,
     }
 }

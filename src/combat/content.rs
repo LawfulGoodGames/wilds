@@ -38,6 +38,23 @@ const UNDEAD_LOOT: &[LootTableEntry] = &[LootTableEntry {
     min_rarity: ItemRarity::Rare,
 }];
 
+const MOOR_UNDEAD_LOOT: &[LootTableEntry] = &[
+    LootTableEntry {
+        item_type: "grave_ash",
+        min_qty: 1,
+        max_qty: 2,
+        weight: 2,
+        min_rarity: ItemRarity::Rare,
+    },
+    LootTableEntry {
+        item_type: "cipher_scroll",
+        min_qty: 1,
+        max_qty: 1,
+        weight: 4,
+        min_rarity: ItemRarity::Rare,
+    },
+];
+
 pub const ABILITIES: &[AbilityDef] = &[
     AbilityDef {
         id: "guard_stance",
@@ -519,6 +536,46 @@ pub const ENEMIES: &[EnemyDef] = &[
         reward_xp: 38,
         reward_gold: 22,
     },
+    EnemyDef {
+        id: "moor_shambler",
+        name: "Moor Shambler",
+        family: "Undead",
+        role: EnemyRole::Brute,
+        level: 4,
+        hp: 44,
+        mana: 4,
+        stamina: 14,
+        attack_bonus: 5,
+        defense: 13,
+        initiative: 1,
+        damage_min: 6,
+        damage_max: 9,
+        weapon_kind: WeaponKind::Melee,
+        ability_ids: &["grave_bolt"],
+        loot: MOOR_UNDEAD_LOOT,
+        reward_xp: 42,
+        reward_gold: 22,
+    },
+    EnemyDef {
+        id: "moor_channeler",
+        name: "Moor Channeler",
+        family: "Undead",
+        role: EnemyRole::Caster,
+        level: 4,
+        hp: 32,
+        mana: 20,
+        stamina: 10,
+        attack_bonus: 5,
+        defense: 12,
+        initiative: 3,
+        damage_min: 4,
+        damage_max: 7,
+        weapon_kind: WeaponKind::Magic,
+        ability_ids: &["grave_bolt"],
+        loot: MOOR_UNDEAD_LOOT,
+        reward_xp: 46,
+        reward_gold: 26,
+    },
 ];
 
 pub const ENCOUNTERS: &[EncounterDef] = &[
@@ -557,6 +614,18 @@ pub const ENCOUNTERS: &[EncounterDef] = &[
         name: "Barrow Rites",
         environment_tags: &["barrow", "ritual"],
         enemies: &["grave_channeler", "gravebound"],
+    },
+    EncounterDef {
+        id: "moor_shamble",
+        name: "Moor Shamble",
+        environment_tags: &["moor", "fog"],
+        enemies: &["moor_shambler", "moor_shambler"],
+    },
+    EncounterDef {
+        id: "moor_channeling",
+        name: "Moor Channeling",
+        environment_tags: &["moor", "ritual"],
+        enemies: &["moor_channeler", "moor_shambler"],
     },
 ];
 

@@ -76,6 +76,43 @@ const CROWN_IN_CINDERS_OBJECTIVES: &[QuestObjectiveDef] = &[QuestObjectiveDef {
     },
 }];
 
+const RUMORS_IN_THE_HEARTH_OBJECTIVES: &[QuestObjectiveDef] = &[QuestObjectiveDef {
+    text: "Ask Innkeeper Brin what the townsfolk whisper about the Mage King.",
+    kind: ObjectiveKind::TalkToNpc {
+        npc: NpcId::InnkeeperBrin,
+    },
+}];
+
+const THE_BLIGHTED_MOOR_OBJECTIVES: &[QuestObjectiveDef] = &[QuestObjectiveDef {
+    text: "Reach the Blighted Moor east of the barrow.",
+    kind: ObjectiveKind::VisitArea {
+        area: AreaId::BlightedMoor,
+    },
+}];
+
+const SERVANTS_OF_ASH_OBJECTIVES: &[QuestObjectiveDef] = &[QuestObjectiveDef {
+    text: "Destroy 3 undead packs roaming the Blighted Moor.",
+    kind: ObjectiveKind::KillFamily {
+        family: "Undead",
+        count: 3,
+    },
+}];
+
+const THE_KINGS_CIPHER_OBJECTIVES: &[QuestObjectiveDef] = &[QuestObjectiveDef {
+    text: "Recover 1 cipher scroll from the Mage King's risen servants.",
+    kind: ObjectiveKind::OwnItem {
+        item_type: "cipher_scroll",
+        count: 1,
+    },
+}];
+
+const THE_EXILED_THRONE_OBJECTIVES: &[QuestObjectiveDef] = &[QuestObjectiveDef {
+    text: "Deliver the cipher scroll to Arcanist Sel.",
+    kind: ObjectiveKind::TalkToNpc {
+        npc: NpcId::ArcanistSel,
+    },
+}];
+
 pub const QUESTS: &[QuestDef] = &[
     QuestDef {
         id: QuestId::LanternsInTheRain,
@@ -227,15 +264,99 @@ pub const QUESTS: &[QuestDef] = &[
             item_qty: 1,
         },
     },
+    QuestDef {
+        id: QuestId::RumorsInTheHearth,
+        name: "Rumors in the Hearth",
+        summary: "Sel needs ears closer to the street. Innkeeper Brin hears every whisper Hearthmere cannot keep quiet.",
+        giver: NpcId::ArcanistSel,
+        required_quest: Some(QuestId::CrownInCinders),
+        required_flags: &[],
+        objectives: RUMORS_IN_THE_HEARTH_OBJECTIVES,
+        rewards: QuestReward {
+            xp: 170,
+            gold: 60,
+            item_type: Some("greater_health_potion"),
+            item_qty: 2,
+        },
+    },
+    QuestDef {
+        id: QuestId::TheBlightedMoor,
+        name: "The Blighted Moor",
+        summary: "Brin's patrons speak of a fouled marshland east of the barrow where the Mage King's loyalists gather.",
+        giver: NpcId::InnkeeperBrin,
+        required_quest: Some(QuestId::RumorsInTheHearth),
+        required_flags: &[],
+        objectives: THE_BLIGHTED_MOOR_OBJECTIVES,
+        rewards: QuestReward {
+            xp: 200,
+            gold: 75,
+            item_type: Some("antidote"),
+            item_qty: 2,
+        },
+    },
+    QuestDef {
+        id: QuestId::ServantsOfAsh,
+        name: "Servants of Ash",
+        summary: "The Mage King's risen servants patrol the moor in growing numbers. Drive them back before they march on Hearthmere.",
+        giver: NpcId::ScoutMira,
+        required_quest: Some(QuestId::TheBlightedMoor),
+        required_flags: &[],
+        objectives: SERVANTS_OF_ASH_OBJECTIVES,
+        rewards: QuestReward {
+            xp: 230,
+            gold: 85,
+            item_type: Some("greater_mana_tonic"),
+            item_qty: 1,
+        },
+    },
+    QuestDef {
+        id: QuestId::TheKingsCipher,
+        name: "The King's Cipher",
+        summary: "Among the risen, one carried sealed orders in the Mage King's own cipher. Vale needs it recovered before it rots in the marsh.",
+        giver: NpcId::QuartermasterVale,
+        required_quest: Some(QuestId::ServantsOfAsh),
+        required_flags: &[],
+        objectives: THE_KINGS_CIPHER_OBJECTIVES,
+        rewards: QuestReward {
+            xp: 220,
+            gold: 90,
+            item_type: Some("silver_amulet"),
+            item_qty: 1,
+        },
+    },
+    QuestDef {
+        id: QuestId::TheExiledThrone,
+        name: "The Exiled Throne",
+        summary: "Bring the cipher to Arcanist Sel and learn where the Mage King plans to reclaim his throne.",
+        giver: NpcId::ArcanistSel,
+        required_quest: Some(QuestId::TheKingsCipher),
+        required_flags: &[],
+        objectives: THE_EXILED_THRONE_OBJECTIVES,
+        rewards: QuestReward {
+            xp: 260,
+            gold: 100,
+            item_type: Some("phoenix_cloak"),
+            item_qty: 1,
+        },
+    },
 ];
 
-pub const QUEST_ITEM_HINTS: &[QuestItemHintDef] = &[QuestItemHintDef {
-    quest_id: "roadside_ledger",
-    item_type: "old_map",
-    relevant_families: &["Bandit"],
-    relevant_environment_tags: &["road"],
-    miss_text: Some("You search the fallen raiders, but the old map is nowhere on them."),
-}];
+pub const QUEST_ITEM_HINTS: &[QuestItemHintDef] = &[
+    QuestItemHintDef {
+        quest_id: "roadside_ledger",
+        item_type: "old_map",
+        relevant_families: &["Bandit"],
+        relevant_environment_tags: &["road"],
+        miss_text: Some("You search the fallen raiders, but the old map is nowhere on them."),
+    },
+    QuestItemHintDef {
+        quest_id: "the_kings_cipher",
+        item_type: "cipher_scroll",
+        relevant_families: &["Undead"],
+        relevant_environment_tags: &["moor"],
+        miss_text: Some("You search the fallen dead, but the cipher scroll is not among them."),
+    },
+];
 
 pub fn quest_completion_story_lines(quest_id: &str) -> &'static [&'static str] {
     match quest_id {
@@ -270,6 +391,22 @@ pub fn quest_completion_story_lines(quest_id: &str) -> &'static [&'static str] {
         "crown_in_cinders" => {
             &["The first chapter closes with the Mage King's name finally spoken aloud."]
         }
+        "rumors_in_the_hearth" => {
+            &["Brin speaks of travelers who saw lights on a fouled moor east of the barrow."]
+        }
+        "the_blighted_moor" => &[
+            "The marsh reeks of death and old magic. The Mage King's servants are already here.",
+        ],
+        "servants_of_ash" => {
+            &["Among the fallen risen, you find sealed orders bearing the Mage King's cipher."]
+        }
+        "the_kings_cipher" => &[
+            "The cipher scroll is intact. Arcanist Sel is the only one who can read it.",
+        ],
+        "the_exiled_throne" => &[
+            "Sel decodes the scroll and names the place where the Mage King will return.",
+            "The second chapter opens with a war the town cannot yet see.",
+        ],
         _ => &[],
     }
 }
