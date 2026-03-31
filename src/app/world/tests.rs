@@ -1,6 +1,6 @@
 use super::*;
 use crate::settings::UserSettings;
-use crate::world::QuestProgress;
+use crate::world::{NpcId, ObjectiveKind, QuestId, QuestProgress, quest_def};
 use sqlx::SqlitePool;
 
 #[tokio::test]
