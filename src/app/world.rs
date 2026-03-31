@@ -10,6 +10,38 @@ use crate::world::{
 use rand::RngExt;
 
 impl App {
+    fn objective_lead_text(&self, objective: &ObjectiveKind) -> String {
+        match objective {
+            ObjectiveKind::TalkToNpc { npc } => format!("Speak with {}.", npc.name()),
+            ObjectiveKind::VisitArea { area } => format!("Travel to {}.", area.label()),
+            ObjectiveKind::KillFamily { family, count } => {
+                format!("Defeat {count} {family} encounter(s).")
+            }
+            ObjectiveKind::OwnItem { item_type, count } => {
+                let item_name = find_def(item_type)
+                    .map(|item| item.name)
+                    .unwrap_or(item_type);
+                format!("Recover {count} {item_name}.")
+            }
+        }
+    }
+
+    fn current_story_lead_line(&self) -> Option<String> {
+        let quest_id = self.world_state.current_story_lead()?;
+        let def = quest_def(quest_id.id())?;
+        let lead = self
+            .world_state
+            .active_quest(quest_id)
+            .and_then(|progress| def.objectives.get(progress.objective_index))
+            .map(|objective| self.objective_lead_text(&objective.kind))
+            .or_else(|| {
+                def.objectives
+                    .first()
+                    .map(|objective| self.objective_lead_text(&objective.kind))
+            })?;
+        Some(format!("Next lead: {}. {}", def.name, lead))
+    }
+
     pub fn visible_quest_ids(&self) -> Vec<QuestId> {
         QuestId::ALL
             .iter()
@@ -263,8 +295,15 @@ impl App {
         let npc = NpcId::ALL[self.npc_cursor];
         let accepted_line = self.auto_accept_story_quest_for_npc(npc).await?;
         let mut quest_lines = self.apply_talk_objective(npc).await?;
+        let followup_line = self.auto_accept_story_quest_for_npc(npc).await?;
         if let Some(line) = accepted_line {
             quest_lines.insert(0, line);
+        }
+        if let Some(line) = followup_line {
+            quest_lines.push(line);
+            if let Some(lead) = self.current_story_lead_line() {
+                quest_lines.push(lead);
+            }
         }
         let (title, mut lines, choices) = self.dialogue_for_npc(npc);
         if !quest_lines.is_empty() {
@@ -766,6 +805,16 @@ impl App {
                         ],
                         vec![],
                     )
+                } else if self.world_state.active_quest(QuestId::Gravewind).is_some() {
+                    (
+                        "Arcanist Sel",
+                        vec![
+                            "Sel wraps the seal in cloth as though even its wax should not touch bare skin.".to_string(),
+                            "\"If the mark has reached the road, the answer will be waiting where the dead were first taught to stand again,\" she says.".to_string(),
+                            "\"Go to the Ashen Barrow. Whatever is waking there is only the beginning.\"".to_string(),
+                        ],
+                        vec![],
+                    )
                 } else {
                     (
                         "Arcanist Sel",
@@ -821,6 +870,9 @@ impl App {
                     .iter()
                     .map(|line| (*line).to_string()),
             );
+            if let Some(lead) = self.current_story_lead_line() {
+                lines.push(lead);
+            }
             rewards.push((
                 def.rewards.xp,
                 def.rewards.gold,
@@ -830,5 +882,91 @@ impl App {
             ));
         }
         Ok(rewards)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::UserSettings;
+    use crate::world::QuestProgress;
+    use sqlx::SqlitePool;
+
+    #[tokio::test]
+    async fn same_speaker_story_handoffs_auto_accept_the_next_quest() {
+        let handoffs = QuestId::ALL
+            .windows(2)
+            .filter_map(|window| {
+                let current = *window.first()?;
+                let next = *window.get(1)?;
+                let current_def = quest_def(current.id())?;
+                let next_def = quest_def(next.id())?;
+                matches!(
+                    current_def
+                        .objectives
+                        .last()
+                        .map(|objective| &objective.kind),
+                    Some(ObjectiveKind::TalkToNpc { .. })
+                )
+                .then_some((
+                    current,
+                    next,
+                    current_def.giver == next_def.giver,
+                    next_def.giver,
+                ))
+            })
+            .filter(|(_, _, same_giver, _)| *same_giver)
+            .map(|(current, next, _, giver)| (current, next, giver))
+            .collect::<Vec<_>>();
+
+        assert!(
+            !handoffs.is_empty(),
+            "expected at least one same-speaker story handoff"
+        );
+
+        for (current, next, giver) in handoffs {
+            let pool = SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite pool");
+            let mut app = App::new(pool, UserSettings::default());
+            app.npc_cursor = NpcId::ALL
+                .iter()
+                .position(|npc| *npc == giver)
+                .expect("giver exists");
+            for quest in QuestId::ALL {
+                if quest == current {
+                    break;
+                }
+                app.world_state
+                    .completed_quests
+                    .push(quest.id().to_string());
+            }
+            app.world_state.active_quests.push(QuestProgress {
+                quest_id: current.id().to_string(),
+                accepted: true,
+                completed: false,
+                objective_index: 0,
+                progress: 0,
+            });
+
+            app.talk_to_selected_npc().await.expect("talk succeeds");
+
+            assert!(app.world_state.has_completed(current));
+            assert!(
+                app.world_state.active_quest(next).is_some(),
+                "expected {} to hand off into {}",
+                current.id(),
+                next.id()
+            );
+            let expected = format!(
+                "New quest: {}.",
+                quest_def(next.id()).expect("next quest def").name
+            );
+            assert!(
+                app.dialogue_lines
+                    .iter()
+                    .any(|line| line.contains(&expected)),
+                "expected dialogue to announce {}",
+                next.id()
+            );
+        }
     }
 }
