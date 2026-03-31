@@ -8,7 +8,8 @@ use ratatui::{
 
 use crate::app::{App, TrainingPhase};
 use crate::character::{
-    MajorSkill, training_session_plan_for_major, training_session_plan_for_minor,
+    MajorSkill, proficiency_xp_for_level, training_session_plan_for_major,
+    training_session_plan_for_minor,
 };
 
 use super::shared::{
@@ -81,6 +82,9 @@ pub fn render_training(app: &App, area: Rect, buf: &mut Buffer) {
 
     let detail = if selected_idx < MajorSkill::ALL.len() {
         let skill = MajorSkill::ALL[selected_idx];
+        let current_xp = ch.major_skill_xp(skill);
+        let xp_to_next = ch.major_skill_xp_to_next(skill);
+        let next_rank_xp = current_xp + xp_to_next as i32;
         let plan = training_session_plan_for_major(skill, ch.major_skill_xp(skill), &ch.stats);
         vec![
             Line::from(Span::styled(
@@ -93,9 +97,17 @@ pub fn render_training(app: &App, area: Rect, buf: &mut Buffer) {
             Line::from(format!(
                 "Rank {}  XP to next {}  Mod {:+}",
                 ch.major_skill(skill),
-                ch.major_skill_xp_to_next(skill),
+                xp_to_next,
                 ch.stats.modifier(skill)
             )),
+            Line::from(if xp_to_next == 0 {
+                format!("XP {}  |  At rank cap", current_xp)
+            } else {
+                format!(
+                    "XP {} / {}  ({} needed)",
+                    current_xp, next_rank_xp, xp_to_next
+                )
+            }),
             Line::from(Span::styled(
                 progress_bar(ch.major_skill_progress(skill), 28),
                 Style::default().fg(Color::Cyan),
@@ -121,6 +133,8 @@ pub fn render_training(app: &App, area: Rect, buf: &mut Buffer) {
         ]
     } else {
         let skill = &ch.proficiencies[selected_idx - MajorSkill::ALL.len()];
+        let xp_to_next = skill.xp_to_next();
+        let next_rank_xp = proficiency_xp_for_level(skill.level() + 1);
         let plan = training_session_plan_for_minor(skill.kind, skill.xp, &ch.stats);
         vec![
             Line::from(Span::styled(
@@ -130,11 +144,15 @@ pub fn render_training(app: &App, area: Rect, buf: &mut Buffer) {
             Line::from(""),
             Line::from(skill.kind.description()),
             Line::from(""),
-            Line::from(format!(
-                "Rank {}  XP to next {}",
-                skill.level(),
-                skill.xp_to_next()
-            )),
+            Line::from(format!("Rank {}  XP to next {}", skill.level(), xp_to_next)),
+            Line::from(if xp_to_next == 0 {
+                format!("XP {}  |  At rank cap", skill.xp)
+            } else {
+                format!(
+                    "XP {} / {}  ({} needed)",
+                    skill.xp, next_rank_xp, xp_to_next
+                )
+            }),
             Line::from(Span::styled(
                 progress_bar(skill.progress(), 28),
                 Style::default().fg(Color::Cyan),

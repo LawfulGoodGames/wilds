@@ -4,7 +4,7 @@ use crate::character::{
     ProficiencyData, Race, ResourcePool, SavedCharacter, Stats, ability_unlock_level,
     class_progression, mana_growth, stamina_growth,
 };
-use crate::inventory::{EquipSlot, Equipment, InventoryItem, gear_package_items};
+use crate::inventory::{EquipSlot, Equipment, InventoryItem, find_def, gear_package_items};
 use crate::world::{QuestProgress, WorldState};
 use sqlx::{
     Row,
@@ -248,13 +248,19 @@ pub async fn load_inventory(
         .bind(character_id)
         .fetch_all(pool)
         .await?;
-    Ok(rows
+    let mut items = rows
         .into_iter()
         .map(|row| InventoryItem {
             item_type: row.get("item_type"),
             quantity: row.get::<i64, _>("quantity") as i32,
         })
-        .collect())
+        .collect::<Vec<_>>();
+    items.sort_by_key(|item| {
+        find_def(&item.item_type)
+            .map(|def| (def.kind.sort_order(), def.name.to_string()))
+            .unwrap_or((u8::MAX, item.item_type.clone()))
+    });
+    Ok(items)
 }
 
 pub async fn add_item(

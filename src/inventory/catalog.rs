@@ -97,11 +97,59 @@ const WAND_ATTACKS: &[AttackOption] = &[
     },
 ];
 
+const WARDEN_BLADE_ATTACKS: &[AttackOption] = &[
+    AttackOption {
+        name: "Warden Cut",
+        accuracy_bonus: 4,
+        min_damage: 9,
+        max_damage: 14,
+    },
+    AttackOption {
+        name: "Steel Breaker",
+        accuracy_bonus: 2,
+        min_damage: 12,
+        max_damage: 17,
+    },
+];
+
+const LONGBOW_ATTACKS: &[AttackOption] = &[
+    AttackOption {
+        name: "Piercing Shot",
+        accuracy_bonus: 4,
+        min_damage: 8,
+        max_damage: 13,
+    },
+    AttackOption {
+        name: "Deadeye Volley",
+        accuracy_bonus: 2,
+        min_damage: 11,
+        max_damage: 16,
+    },
+];
+
+const STORMGLASS_ROD_ATTACKS: &[AttackOption] = &[
+    AttackOption {
+        name: "Storm Needle",
+        accuracy_bonus: 3,
+        min_damage: 9,
+        max_damage: 14,
+    },
+    AttackOption {
+        name: "Static Lance",
+        accuracy_bonus: 2,
+        min_damage: 11,
+        max_damage: 17,
+    },
+];
+
 const HEALTH_EFFECT: &[ItemEffect] = &[ItemEffect::HealHp(24)];
+const GREATER_HEALTH_EFFECT: &[ItemEffect] = &[ItemEffect::HealHp(64)];
 const BANDAGE_EFFECT: &[ItemEffect] = &[ItemEffect::HealHp(12)];
 const RATION_EFFECT: &[ItemEffect] = &[ItemEffect::HealHp(8), ItemEffect::RestoreStamina(6)];
 const MANA_EFFECT: &[ItemEffect] = &[ItemEffect::RestoreMana(18)];
+const GREATER_MANA_EFFECT: &[ItemEffect] = &[ItemEffect::RestoreMana(52)];
 const STAMINA_EFFECT: &[ItemEffect] = &[ItemEffect::RestoreStamina(18)];
+const GREATER_STAMINA_EFFECT: &[ItemEffect] = &[ItemEffect::RestoreStamina(52)];
 const ANTIDOTE_EFFECT: &[ItemEffect] = &[ItemEffect::CurePoison];
 
 pub const ITEM_CATALOG: &[ItemDef] = &[
@@ -114,6 +162,20 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
         base_value: 18,
         stackable: true,
         effects: HEALTH_EFFECT,
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
+    },
+    ItemDef {
+        item_type: "greater_health_potion",
+        name: "Greater Health Potion",
+        description: "A dense crimson brew reserved for fighters expected to survive brutal wounds.",
+        kind: ItemKind::Consumable,
+        rarity: ItemRarity::Rare,
+        base_value: 95,
+        stackable: true,
+        effects: GREATER_HEALTH_EFFECT,
         equip_slot: None,
         weapon_kind: None,
         attacks: &[],
@@ -162,6 +224,20 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
         equipment_stats: ZERO_EQUIPMENT_STATS,
     },
     ItemDef {
+        item_type: "greater_mana_tonic",
+        name: "Greater Mana Tonic",
+        description: "Distilled reserve crystal in liquid form for battle mages with real reserves to restore.",
+        kind: ItemKind::Consumable,
+        rarity: ItemRarity::Rare,
+        base_value: 110,
+        stackable: true,
+        effects: GREATER_MANA_EFFECT,
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
+    },
+    ItemDef {
         item_type: "stamina_draught",
         name: "Stamina Draught",
         description: "Restores drive and clears the ache from tired limbs.",
@@ -170,6 +246,20 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
         base_value: 20,
         stackable: true,
         effects: STAMINA_EFFECT,
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
+    },
+    ItemDef {
+        item_type: "greater_stamina_draught",
+        name: "Greater Stamina Draught",
+        description: "A veteran marcher’s reserve draught that kicks life back into spent limbs.",
+        kind: ItemKind::Consumable,
+        rarity: ItemRarity::Rare,
+        base_value: 105,
+        stackable: true,
+        effects: GREATER_STAMINA_EFFECT,
         equip_slot: None,
         weapon_kind: None,
         attacks: &[],
@@ -216,6 +306,27 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
                 holy: 0,
                 shadow: 0,
             },
+        },
+    },
+    ItemDef {
+        item_type: "warden_blade",
+        name: "Warden Blade",
+        description: "A heavy frontier longsword balanced for officers who expect to fight through armored resistance.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Epic,
+        base_value: 420,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Weapon),
+        weapon_kind: Some(WeaponKind::Melee),
+        attacks: WARDEN_BLADE_ATTACKS,
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 4,
+            spell_power: 0,
+            crit_bonus: 2,
+            initiative_bonus: 1,
+            resistances: ZERO_RESISTANCES,
         },
     },
     ItemDef {
@@ -269,6 +380,27 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
         },
     },
     ItemDef {
+        item_type: "longshot_bow",
+        name: "Longshot Bow",
+        description: "A masterworked war bow built to punch arrows through mail at distance.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Epic,
+        base_value: 430,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Weapon),
+        weapon_kind: Some(WeaponKind::Ranged),
+        attacks: LONGBOW_ATTACKS,
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 4,
+            spell_power: 0,
+            crit_bonus: 3,
+            initiative_bonus: 2,
+            resistances: ZERO_RESISTANCES,
+        },
+    },
+    ItemDef {
         item_type: "apprentice_staff",
         name: "Apprentice Staff",
         description: "A runed staff that steadies novice channeling.",
@@ -311,6 +443,30 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
         },
     },
     ItemDef {
+        item_type: "stormglass_rod",
+        name: "Stormglass Rod",
+        description: "A prismatic rod that turns disciplined spellwork into battlefield lightning.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Epic,
+        base_value: 560,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Weapon),
+        weapon_kind: Some(WeaponKind::Magic),
+        attacks: STORMGLASS_ROD_ATTACKS,
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 2,
+            spell_power: 10,
+            crit_bonus: 2,
+            initiative_bonus: 1,
+            resistances: ResistanceProfile {
+                lightning: 2,
+                ..ZERO_RESISTANCES
+            },
+        },
+    },
+    ItemDef {
         item_type: "wooden_shield",
         name: "Wooden Shield",
         description: "Simple protection that keeps the worst of a blow off your ribs.",
@@ -330,6 +486,30 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
             initiative_bonus: 0,
             resistances: ResistanceProfile {
                 physical: 1,
+                ..ZERO_RESISTANCES
+            },
+        },
+    },
+    ItemDef {
+        item_type: "tower_shield",
+        name: "Tower Shield",
+        description: "An iron-rimmed wall of a shield for those willing to trade grace for survival.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Rare,
+        base_value: 340,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Shield),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 6,
+            attack_bonus: 0,
+            spell_power: 0,
+            crit_bonus: 0,
+            initiative_bonus: 0,
+            resistances: ResistanceProfile {
+                physical: 4,
                 ..ZERO_RESISTANCES
             },
         },
@@ -359,6 +539,30 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
         },
     },
     ItemDef {
+        item_type: "brigandine",
+        name: "Brigandine Coat",
+        description: "Overlapping steel plates sewn under leather for a traveling officer's protection.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Rare,
+        base_value: 520,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Chest),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 9,
+            attack_bonus: 0,
+            spell_power: 0,
+            crit_bonus: 0,
+            initiative_bonus: 0,
+            resistances: ResistanceProfile {
+                physical: 3,
+                ..ZERO_RESISTANCES
+            },
+        },
+    },
+    ItemDef {
         item_type: "leather_legs",
         name: "Leather Greaves",
         description: "Flexible leg guards for long marches and quick turns.",
@@ -376,6 +580,27 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
             spell_power: 0,
             crit_bonus: 0,
             initiative_bonus: 1,
+            resistances: ZERO_RESISTANCES,
+        },
+    },
+    ItemDef {
+        item_type: "ranger_boots",
+        name: "Ranger Boots",
+        description: "Soft-soled field boots built for speed, stalking, and rapid repositioning.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Rare,
+        base_value: 260,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Legs),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 3,
+            attack_bonus: 0,
+            spell_power: 0,
+            crit_bonus: 1,
+            initiative_bonus: 4,
             resistances: ZERO_RESISTANCES,
         },
     },
@@ -404,6 +629,31 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
         },
     },
     ItemDef {
+        item_type: "phoenix_cloak",
+        name: "Phoenix Cloak",
+        description: "A firewarded cloak favored by couriers who run through burning siege lines.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Rare,
+        base_value: 310,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Cape),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 2,
+            attack_bonus: 0,
+            spell_power: 2,
+            crit_bonus: 0,
+            initiative_bonus: 2,
+            resistances: ResistanceProfile {
+                fire: 4,
+                frost: 1,
+                ..ZERO_RESISTANCES
+            },
+        },
+    },
+    ItemDef {
         item_type: "silver_amulet",
         name: "Silver Amulet",
         description: "An old protective charm used to ward restless spirits.",
@@ -424,6 +674,32 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
             resistances: ResistanceProfile {
                 holy: 2,
                 shadow: 1,
+                ..ZERO_RESISTANCES
+            },
+        },
+    },
+    ItemDef {
+        item_type: "moonseal_amulet",
+        name: "Moonseal Amulet",
+        description: "A silvered ward carved with old protective script against cursed and royal dead alike.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Rare,
+        base_value: 390,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Neck),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 1,
+            spell_power: 4,
+            crit_bonus: 1,
+            initiative_bonus: 0,
+            resistances: ResistanceProfile {
+                holy: 3,
+                shadow: 3,
+                poison: 1,
                 ..ZERO_RESISTANCES
             },
         },

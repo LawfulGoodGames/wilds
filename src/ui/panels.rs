@@ -347,11 +347,23 @@ pub fn render_inventory(app: &App, area: Rect, buf: &mut Buffer) {
     let list = if app.inventory.items.is_empty() {
         vec![Line::from(Span::styled("(empty)", dim_style()))]
     } else {
+        let mut current_kind = None;
         app.inventory
             .items
             .iter()
             .enumerate()
-            .map(|(idx, item)| {
+            .flat_map(|(idx, item)| {
+                let kind = item.def().map(|def| def.kind);
+                let mut lines = vec![];
+                if kind != current_kind {
+                    if let Some(kind) = kind {
+                        if current_kind.is_some() {
+                            lines.push(Line::from(""));
+                        }
+                        lines.push(Line::from(Span::styled(kind.label(), dim_style())));
+                    }
+                    current_kind = kind;
+                }
                 let name = item
                     .def()
                     .map(|def| def.name)
@@ -361,10 +373,11 @@ pub fn render_inventory(app: &App, area: Rect, buf: &mut Buffer) {
                 } else {
                     normal_style()
                 };
-                Line::from(Span::styled(
+                lines.push(Line::from(Span::styled(
                     format!("{:<24} x{}", name, item.quantity),
                     style,
-                ))
+                )));
+                lines
             })
             .collect::<Vec<_>>()
     };

@@ -104,6 +104,15 @@ impl ItemKind {
             Self::Quest => "Quest Item",
         }
     }
+
+    pub fn sort_order(self) -> u8 {
+        match self {
+            Self::Consumable => 0,
+            Self::Equipment => 1,
+            Self::Loot => 2,
+            Self::Quest => 3,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

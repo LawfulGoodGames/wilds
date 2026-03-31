@@ -378,6 +378,18 @@ const QUARTERMASTER_STOCK: &[VendorItem] = &[
         item_type: "health_potion",
         stock: 5,
     },
+    VendorItem {
+        item_type: "warden_blade",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "tower_shield",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "brigandine",
+        stock: 1,
+    },
 ];
 
 const ARCANIST_STOCK: &[VendorItem] = &[
@@ -397,6 +409,18 @@ const ARCANIST_STOCK: &[VendorItem] = &[
         item_type: "antidote",
         stock: 3,
     },
+    VendorItem {
+        item_type: "stormglass_rod",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "moonseal_amulet",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "greater_mana_tonic",
+        stock: 2,
+    },
 ];
 
 const PROVISIONER_STOCK: &[VendorItem] = &[
@@ -415,6 +439,26 @@ const PROVISIONER_STOCK: &[VendorItem] = &[
     VendorItem {
         item_type: "traveler_cloak",
         stock: 1,
+    },
+    VendorItem {
+        item_type: "longshot_bow",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "ranger_boots",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "phoenix_cloak",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "greater_health_potion",
+        stock: 3,
+    },
+    VendorItem {
+        item_type: "greater_stamina_draught",
+        stock: 2,
     },
 ];
 
