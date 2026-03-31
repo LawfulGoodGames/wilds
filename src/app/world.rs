@@ -1,11 +1,47 @@
-use super::{App, Screen};
+use super::{App, DialogueChoice, Screen};
 use crate::combat::CombatReward;
+use crate::combat::ability_def;
 use crate::db;
 use crate::inventory::{EquipSlot, ItemEffect, find_def};
-use crate::world::{AreaId, ObjectiveKind, QuestId, VendorId, area_def, quest_def, vendor_def};
+use crate::world::{
+    AreaId, NpcId, ObjectiveKind, QuestId, VendorId, area_def, quest_completion_story_lines,
+    quest_def, quest_item_miss_text, vendor_def,
+};
 use rand::RngExt;
 
 impl App {
+    pub fn visible_quest_ids(&self) -> Vec<QuestId> {
+        QuestId::ALL
+            .iter()
+            .copied()
+            .filter(|quest_id| {
+                let is_complete = self.world_state.has_completed(*quest_id);
+                let is_active = self.world_state.active_quest(*quest_id).is_some();
+                let is_available = self.world_state.can_accept_quest(*quest_id);
+                let is_locked = !is_complete && !is_active && !is_available;
+                (!is_complete || self.quest_show_completed)
+                    && (!is_locked || self.quest_show_locked)
+            })
+            .collect()
+    }
+
+    pub fn selected_visible_quest_id(&self) -> Option<QuestId> {
+        let visible = self.visible_quest_ids();
+        visible
+            .get(self.quest_cursor.min(visible.len().saturating_sub(1)))
+            .copied()
+    }
+
+    pub fn toggle_quest_completed_filter(&mut self) {
+        self.quest_show_completed = !self.quest_show_completed;
+        self.quest_cursor = 0;
+    }
+
+    pub fn toggle_quest_locked_filter(&mut self) {
+        self.quest_show_locked = !self.quest_show_locked;
+        self.quest_cursor = 0;
+    }
+
     pub async fn rest_at_inn(&mut self) -> color_eyre::Result<()> {
         let Some(ch) = self.active_character.as_mut() else {
             return Ok(());
@@ -223,11 +259,106 @@ impl App {
         Ok(())
     }
 
+    pub async fn talk_to_selected_npc(&mut self) -> color_eyre::Result<()> {
+        let npc = NpcId::ALL[self.npc_cursor];
+        let accepted_line = self.auto_accept_story_quest_for_npc(npc).await?;
+        let mut quest_lines = self.apply_talk_objective(npc).await?;
+        if let Some(line) = accepted_line {
+            quest_lines.insert(0, line);
+        }
+        let (title, mut lines, choices) = self.dialogue_for_npc(npc);
+        if !quest_lines.is_empty() {
+            lines.push(String::new());
+            lines.append(&mut quest_lines);
+        }
+        if choices.is_empty() {
+            self.open_dialog(title, lines, Screen::People);
+        } else {
+            self.open_choice_dialog(title, lines, choices, npc, Screen::People);
+        }
+        Ok(())
+    }
+
+    pub async fn resolve_dialogue_choice(&mut self) -> color_eyre::Result<()> {
+        let Some(choice) = self
+            .dialogue_choices
+            .get(
+                self.dialogue_cursor
+                    .min(self.dialogue_choices.len().saturating_sub(1)),
+            )
+            .cloned()
+        else {
+            self.go_back().await?;
+            return Ok(());
+        };
+        if let Some(flag) = &choice.memory_flag {
+            self.world_state.set_flag(flag);
+            if let Some(ch) = &self.active_character {
+                db::save_world_state(&self.pool, ch.id, &self.world_state).await?;
+            }
+        }
+        self.dialogue_lines.extend(choice.response_lines);
+        self.dialogue_choices.clear();
+        self.dialogue_cursor = 0;
+        let mut combined_status = None;
+        if let Some(npc) = self.dialogue_npc {
+            if let Some(line) = self.auto_accept_story_quest_for_npc(npc).await? {
+                self.dialogue_lines.push(String::new());
+                self.dialogue_lines.push(line.clone());
+                if let Some(quest_id) = self.world_state.current_story_lead() {
+                    if let Some(def) = quest_def(quest_id.id()) {
+                        self.dialogue_lines.push(def.summary.to_string());
+                    }
+                }
+                combined_status = Some(format!("Story updated: {line}"));
+            }
+        }
+        if let Some(message) = choice.status_message {
+            combined_status = Some(match combined_status {
+                Some(prefix) => format!("{prefix} {message}"),
+                None => message,
+            });
+        }
+        self.status_message = combined_status;
+        Ok(())
+    }
+
+    async fn auto_accept_story_quest_for_npc(
+        &mut self,
+        npc: NpcId,
+    ) -> color_eyre::Result<Option<String>> {
+        let Some(quest_id) = self.world_state.current_story_lead() else {
+            return Ok(None);
+        };
+        let Some(def) = quest_def(quest_id.id()) else {
+            return Ok(None);
+        };
+        if def.giver != npc || !self.world_state.can_accept_quest(quest_id) {
+            return Ok(None);
+        }
+        if !self.world_state.accept_quest(quest_id) {
+            return Ok(None);
+        }
+        if let Some(ch) = &self.active_character {
+            db::save_world_state(&self.pool, ch.id, &self.world_state).await?;
+        }
+        Ok(Some(format!("New quest: {}.", def.name)))
+    }
+
     pub async fn accept_selected_quest(&mut self) -> color_eyre::Result<()> {
         let Some(ch) = &self.active_character else {
             return Ok(());
         };
-        let quest_id = QuestId::ALL[self.quest_cursor];
+        let Some(quest_id) = self.selected_visible_quest_id() else {
+            self.status_message = Some("No quests match the current filters.".to_string());
+            return Ok(());
+        };
+        if !self.world_state.can_accept_quest(quest_id) {
+            self.status_message = Some(
+                "That story step is not ready yet. Follow the current lead first.".to_string(),
+            );
+            return Ok(());
+        }
         if self.world_state.has_completed(quest_id) {
             self.status_message = Some("That quest is already complete.".to_string());
             return Ok(());
@@ -311,7 +442,10 @@ impl App {
                 }
             }
         }
-        let _ = self.complete_ready_quests().await?;
+        let reward_lines = self.apply_noncombat_quest_rewards().await?;
+        if let Some(line) = reward_lines.last() {
+            self.status_message = Some(line.clone());
+        }
         Ok(())
     }
 
@@ -360,43 +494,302 @@ impl App {
                     }
                 }
                 ObjectiveKind::OwnItem { item_type, count } => {
-                    let total = self
+                    let owned_before = self
                         .inventory
                         .items
                         .iter()
                         .find(|item| item.item_type == *item_type)
                         .map(|item| item.quantity)
-                        .unwrap_or(0)
-                        + reward
-                            .drops
-                            .iter()
-                            .filter(|(item, _)| item == item_type)
-                            .map(|(_, qty)| *qty)
-                            .sum::<i32>();
+                        .unwrap_or(0);
+                    let dropped_qty = reward
+                        .drops
+                        .iter()
+                        .filter(|(item, _)| item == item_type)
+                        .map(|(_, qty)| *qty)
+                        .sum::<i32>();
+                    let total = owned_before + dropped_qty;
                     if total >= *count {
                         progress.objective_index += 1;
                         progress.progress = total;
+                    } else if owned_before < *count && dropped_qty == 0 {
+                        if let Some(item_name) = find_def(item_type).map(|item| item.name) {
+                            if let Some(text) = quest_item_miss_text(
+                                def.id.id(),
+                                item_type,
+                                item_name,
+                                &reward.encounter_name,
+                                &reward.defeated_families,
+                                &reward.environment_tags,
+                            ) {
+                                lines.push(text);
+                            }
+                        }
                     }
                 }
                 ObjectiveKind::VisitArea { .. } => {}
+                ObjectiveKind::TalkToNpc { .. } => {}
             }
         }
 
         for line in self.complete_ready_quests().await? {
             character.gold += line.1;
             character.apply_xp_gain(line.0);
-            if let Some(item) = line.2 {
+            if let Some(item) = line.2.clone() {
                 db::add_item(&self.pool, character.id, &item, line.3).await?;
             }
-            lines.push(line.4);
+            lines.extend(line.4);
         }
         db::save_world_state(&self.pool, character.id, &self.world_state).await?;
         Ok(lines)
     }
 
+    async fn apply_talk_objective(&mut self, npc: NpcId) -> color_eyre::Result<Vec<String>> {
+        let mut lines = vec![];
+        let active_ids = self
+            .world_state
+            .active_quests
+            .iter()
+            .map(|q| q.quest_id.clone())
+            .collect::<Vec<_>>();
+        for quest_id in active_ids {
+            let Some(def) = quest_def(&quest_id) else {
+                continue;
+            };
+            let Some(progress) = self.world_state.active_quest_mut(def.id) else {
+                continue;
+            };
+            if progress.completed || progress.objective_index >= def.objectives.len() {
+                continue;
+            }
+            if let ObjectiveKind::TalkToNpc { npc: needed } =
+                &def.objectives[progress.objective_index].kind
+            {
+                if *needed == npc {
+                    progress.progress = 1;
+                    progress.objective_index += 1;
+                    lines.push(format!("Quest updated: {}.", def.name));
+                }
+            }
+        }
+        lines.extend(self.apply_noncombat_quest_rewards().await?);
+        if let Some(ch) = &self.active_character {
+            db::save_world_state(&self.pool, ch.id, &self.world_state).await?;
+        }
+        Ok(lines)
+    }
+
+    async fn apply_noncombat_quest_rewards(&mut self) -> color_eyre::Result<Vec<String>> {
+        let rewards = self.complete_ready_quests().await?;
+        if rewards.is_empty() {
+            return Ok(vec![]);
+        }
+        let Some(character_id) = self.active_character.as_ref().map(|ch| ch.id) else {
+            return Ok(vec![]);
+        };
+        let mut lines = vec![];
+        {
+            let Some(ch) = self.active_character.as_mut() else {
+                return Ok(vec![]);
+            };
+            for reward in &rewards {
+                ch.gold += reward.1;
+                let level_up = ch.apply_xp_gain(reward.0);
+                lines.extend(reward.4.clone());
+                lines.push(format!("Received {} XP and {} gold.", reward.0, reward.1));
+                if let Some(item) = reward.2.as_deref().and_then(find_def) {
+                    lines.push(format!("Received {} x{}.", item.name, reward.3));
+                }
+                if level_up.levels_gained > 0 {
+                    lines.push(format!("Level up! Reached level {}.", ch.level));
+                    if !level_up.new_ability_ids.is_empty() {
+                        let ability_names = level_up
+                            .new_ability_ids
+                            .iter()
+                            .map(|ability_id| {
+                                ability_def(ability_id)
+                                    .map(|def| def.name)
+                                    .unwrap_or(ability_id.as_str())
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        lines.push(format!("New abilities unlocked: {ability_names}"));
+                    }
+                }
+            }
+            db::save_character_state(&self.pool, ch).await?;
+        }
+        for reward in &rewards {
+            if let Some(item) = &reward.2 {
+                db::add_item(&self.pool, character_id, item, reward.3).await?;
+            }
+        }
+        self.inventory.items = db::load_inventory(&self.pool, character_id).await?;
+        db::save_world_state(&self.pool, character_id, &self.world_state).await?;
+        Ok(lines)
+    }
+
+    fn dialogue_for_npc(&self, npc: NpcId) -> (&'static str, Vec<String>, Vec<DialogueChoice>) {
+        match npc {
+            NpcId::CaptainHedd => {
+                if !self.world_state.has_flag("hedd_motive_duty")
+                    && !self.world_state.has_flag("hedd_motive_coin")
+                    && !self.world_state.has_flag("hedd_motive_truth")
+                {
+                    (
+                        "Captain Hedd",
+                        vec![
+                            "Rain beads on Captain Hedd's coat while lanterns sway over the square.".to_string(),
+                            "\"Good. A steady pair of hands.\" He taps a rough patrol map. \"One of ours is missing in the Whispering Woods. Start there and bring back the truth, not tavern fog.\"".to_string(),
+                            "\"Before you go, answer me plain. Why stand the line for Hearthmere?\"".to_string(),
+                        ],
+                        vec![
+                            DialogueChoice {
+                                label: "Because someone has to hold the wall.".to_string(),
+                                response_lines: vec![
+                                    "Hedd gives a short nod. \"Duty keeps towns alive longer than luck does. Remember that.\"".to_string(),
+                                ],
+                                memory_flag: Some("hedd_motive_duty".to_string()),
+                                status_message: Some("Captain Hedd remembers your sense of duty.".to_string()),
+                            },
+                            DialogueChoice {
+                                label: "Because danger pays better than hunger.".to_string(),
+                                response_lines: vec![
+                                    "Hedd snorts. \"Honest enough. Stay alive and there might even be coin left when this is done.\"".to_string(),
+                                ],
+                                memory_flag: Some("hedd_motive_coin".to_string()),
+                                status_message: Some("Captain Hedd clocks your eye for coin.".to_string()),
+                            },
+                            DialogueChoice {
+                                label: "Because I want to be the one who sees what's coming.".to_string(),
+                                response_lines: vec![
+                                    "\"Then keep your eyes open wider than the last patrol did,\" Hedd says, pushing the map toward you.".to_string(),
+                                ],
+                                memory_flag: Some("hedd_motive_truth".to_string()),
+                                status_message: Some("Captain Hedd notes your hunger for the truth.".to_string()),
+                            },
+                        ],
+                    )
+                } else if self.world_state.active_quest(QuestId::MissingOnTheWatch).is_some() {
+                    (
+                        "Captain Hedd",
+                        vec![
+                            "\"Work the western edge of the Whispering Woods and trust fresh silence less than fresh tracks,\" Hedd says.".to_string(),
+                            "\"If the woods went too quiet for the patrol, they'll try the same trick on you there too.\"".to_string(),
+                        ],
+                        vec![],
+                    )
+                } else if self.world_state.active_quest(QuestId::WordToTheCaptain).is_some() {
+                    (
+                        "Captain Hedd",
+                        vec![
+                            "You lay out the story of the barrow and the marching dead. Hedd goes still.".to_string(),
+                            "\"Then this isn't a bad season. It's the front edge of a war.\" He folds the report with soldier's care.".to_string(),
+                            "\"Take this to Sel. If she names what raised them, I can start convincing the town before panic does it for me.\"".to_string(),
+                        ],
+                        vec![],
+                    )
+                } else {
+                    (
+                        "Captain Hedd",
+                        vec![
+                            "\"Keep your pack ready and your head low,\" Hedd says. \"Hearthmere doesn't get quiet by accident anymore.\"".to_string(),
+                        ],
+                        vec![],
+                    )
+                }
+            }
+            NpcId::ScoutMira => {
+                if self.world_state.active_quest(QuestId::ReportToMira).is_some() {
+                    (
+                        "Scout Mira",
+                        vec![
+                            "Mira studies the mud on your boots before she studies your face.".to_string(),
+                            "\"So the patrol crossed the Whispering Woods and never came back from the Sunken Road. That's not wolves.\"".to_string(),
+                            "\"Do we stay close and map every step, or press hard before the trail cools?\"".to_string(),
+                        ],
+                        vec![
+                            DialogueChoice {
+                                label: "Map every step. We only get one first read.".to_string(),
+                                response_lines: vec![
+                                    "\"Careful work wins long hunts,\" Mira says. \"Good. We'll read this trail clean.\"".to_string(),
+                                ],
+                                memory_flag: Some("mira_method_careful".to_string()),
+                                status_message: Some("Mira notes that you favor caution.".to_string()),
+                            },
+                            DialogueChoice {
+                                label: "Press hard. Whoever did this is still ahead of us.".to_string(),
+                                response_lines: vec![
+                                    "Mira smiles without warmth. \"Fast, then. Just don't mistake speed for silence.\"".to_string(),
+                                ],
+                                memory_flag: Some("mira_method_bold".to_string()),
+                                status_message: Some("Mira notes that you press the advantage.".to_string()),
+                            },
+                        ],
+                    )
+                } else {
+                    (
+                        "Scout Mira",
+                        vec![
+                            "\"The forest only lies to people who rush it,\" Mira says. \"Listen long enough and it names the thing that frightened it.\"".to_string(),
+                        ],
+                        vec![],
+                    )
+                }
+            }
+            NpcId::QuartermasterVale => (
+                "Quartermaster Vale",
+                vec![
+                    "\"Every cart lost on the Sunken Road becomes someone else's courage problem,\" Vale says, arms full of tally slips.".to_string(),
+                    "\"If you find maps, seals, or anything the raiders missed on the road, bring it back before the rain takes the ink.\"".to_string(),
+                ],
+                vec![],
+            ),
+            NpcId::ArcanistSel => {
+                if self.world_state.active_quest(QuestId::AshOnTheWax).is_some() {
+                    (
+                        "Arcanist Sel",
+                        vec![
+                            "Sel turns the blackened seal under a lamp until ash glitters in its wax.".to_string(),
+                            "\"This mark belonged to one court only, and it should have died with its master.\"".to_string(),
+                            "\"If this ash rides with raiders on the Sunken Road, then someone is testing the roads before they test the gates.\"".to_string(),
+                        ],
+                        vec![],
+                    )
+                } else if self.world_state.active_quest(QuestId::CrownInCinders).is_some() {
+                    (
+                        "Arcanist Sel",
+                        vec![
+                            "Sel reads Hedd's report twice before speaking.".to_string(),
+                            "\"The dead in the Ashen Barrow, the ash sigil, the sealed Sunken Road. I know the hand behind that pattern.\"".to_string(),
+                            "\"The defamed Mage King did not die in exile. He fled the kingdom, and now he is building an army of the dead to march on the capital.\"".to_string(),
+                            "\"Hearthmere is only the first place close enough to hear him testing the drum.\"".to_string(),
+                        ],
+                        vec![],
+                    )
+                } else {
+                    (
+                        "Arcanist Sel",
+                        vec![
+                            "\"Old magic rarely wakes alone,\" Sel says. \"If something has stirred, something else called it.\"".to_string(),
+                        ],
+                        vec![],
+                    )
+                }
+            }
+            NpcId::InnkeeperBrin => (
+                "Innkeeper Brin",
+                vec![
+                    "\"Hearthmere still eats, still sings, and still sweeps blood off the stones by dawn,\" Brin says, polishing a cup.".to_string(),
+                    "\"That means we're not beaten yet. It also means you should hear every rumor twice before believing it.\"".to_string(),
+                ],
+                vec![],
+            ),
+        }
+    }
+
     async fn complete_ready_quests(
         &mut self,
-    ) -> color_eyre::Result<Vec<(i32, i32, Option<String>, i32, String)>> {
+    ) -> color_eyre::Result<Vec<(i32, i32, Option<String>, i32, Vec<String>)>> {
         let mut rewards = vec![];
         let ids = self
             .world_state
@@ -422,12 +815,18 @@ impl App {
             self.world_state
                 .active_quests
                 .retain(|progress| progress.quest_id != def.id.id());
+            let mut lines = vec![format!("Quest complete: {}.", def.name)];
+            lines.extend(
+                quest_completion_story_lines(def.id.id())
+                    .iter()
+                    .map(|line| (*line).to_string()),
+            );
             rewards.push((
                 def.rewards.xp,
                 def.rewards.gold,
                 def.rewards.item_type.map(|item| item.to_string()),
                 def.rewards.item_qty,
-                format!("Quest complete: {}.", def.name),
+                lines,
             ));
         }
         Ok(rewards)

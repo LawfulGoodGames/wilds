@@ -7,7 +7,7 @@ use crate::combat::ActionTab;
 use crate::event::AppEvent;
 use crate::inventory::EquipSlot;
 use crate::settings::OPTIONS_COUNT;
-use crate::world::{AreaId, QuestId, VendorId, vendor_def};
+use crate::world::{AreaId, NpcId, VendorId, vendor_def};
 
 impl App {
     pub(super) fn handle_key_events(&mut self, key_event: KeyEvent) -> color_eyre::Result<()> {
@@ -72,6 +72,7 @@ impl App {
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
                 KeyCode::Enter => self.events.send(AppEvent::Confirm),
                 KeyCode::Char('x') => self.events.send(AppEvent::OpenExplore),
+                KeyCode::Char('p') => self.events.send(AppEvent::OpenPeople),
                 KeyCode::Char('t') => self.events.send(AppEvent::OpenTraining),
                 KeyCode::Char('c') => self.events.send(AppEvent::OpenCharacter),
                 KeyCode::Char('i') => self.events.send(AppEvent::OpenInventory),
@@ -87,6 +88,13 @@ impl App {
                 KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
                 KeyCode::Enter => self.events.send(AppEvent::ExploreSelected),
+                KeyCode::Esc => self.events.send(AppEvent::Back),
+                _ => {}
+            },
+            Screen::People => match key_event.code {
+                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
+                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
+                KeyCode::Enter => self.events.send(AppEvent::Confirm),
                 KeyCode::Esc => self.events.send(AppEvent::Back),
                 _ => {}
             },
@@ -144,6 +152,8 @@ impl App {
             Screen::Quests => match key_event.code {
                 KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
+                KeyCode::Char('c') => self.events.send(AppEvent::QuestToggleCompleted),
+                KeyCode::Char('l') => self.events.send(AppEvent::QuestToggleLocked),
                 KeyCode::Enter => self.events.send(AppEvent::QuestAccept),
                 KeyCode::Esc => self.events.send(AppEvent::Back),
                 _ => {}
@@ -169,9 +179,14 @@ impl App {
                 _ => {}
             },
             Screen::Dialogue => match key_event.code {
-                KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => {
-                    self.events.send(AppEvent::Back)
+                KeyCode::Up | KeyCode::Char('k') if !self.dialogue_choices.is_empty() => {
+                    self.events.send(AppEvent::SelectUp)
                 }
+                KeyCode::Down | KeyCode::Char('j') if !self.dialogue_choices.is_empty() => {
+                    self.events.send(AppEvent::SelectDown)
+                }
+                KeyCode::Enter => self.events.send(AppEvent::Confirm),
+                KeyCode::Esc | KeyCode::Char('q') => self.events.send(AppEvent::Back),
                 _ => {}
             },
             Screen::Combat => match key_event.code {
@@ -205,6 +220,7 @@ impl App {
             }
             Screen::Town => cycle_cursor(&mut self.town_cursor, -1, TownAction::ALL.len()),
             Screen::Explore => cycle_cursor(&mut self.explore_cursor, -1, AreaId::ALL.len()),
+            Screen::People => cycle_cursor(&mut self.npc_cursor, -1, NpcId::ALL.len()),
             Screen::CharacterSheet => {
                 self.character_cursor = self.character_cursor.saturating_sub(1)
             }
@@ -216,12 +232,18 @@ impl App {
                 cycle_cursor(&mut self.equipment_cursor, -1, EquipSlot::ALL.len());
                 self.detail_scroll = 0;
             }
-            Screen::Quests => cycle_cursor(&mut self.quest_cursor, -1, QuestId::ALL.len()),
+            Screen::Quests => {
+                let len = self.visible_quest_ids().len();
+                cycle_cursor(&mut self.quest_cursor, -1, len)
+            }
             Screen::Achievements => cycle_cursor(
                 &mut self.achievement_cursor,
                 -1,
                 achievements::achievement_defs().len(),
             ),
+            Screen::Dialogue if !self.dialogue_choices.is_empty() => {
+                cycle_cursor(&mut self.dialogue_cursor, -1, self.dialogue_choices.len())
+            }
             Screen::Training => {
                 self.training_cursor(-1);
             }
@@ -258,6 +280,7 @@ impl App {
             }
             Screen::Town => cycle_cursor(&mut self.town_cursor, 1, TownAction::ALL.len()),
             Screen::Explore => cycle_cursor(&mut self.explore_cursor, 1, AreaId::ALL.len()),
+            Screen::People => cycle_cursor(&mut self.npc_cursor, 1, NpcId::ALL.len()),
             Screen::CharacterSheet => self.character_cursor += 1,
             Screen::Inventory => {
                 self.inventory.cursor_down();
@@ -267,12 +290,18 @@ impl App {
                 cycle_cursor(&mut self.equipment_cursor, 1, EquipSlot::ALL.len());
                 self.detail_scroll = 0;
             }
-            Screen::Quests => cycle_cursor(&mut self.quest_cursor, 1, QuestId::ALL.len()),
+            Screen::Quests => {
+                let len = self.visible_quest_ids().len();
+                cycle_cursor(&mut self.quest_cursor, 1, len)
+            }
             Screen::Achievements => cycle_cursor(
                 &mut self.achievement_cursor,
                 1,
                 achievements::achievement_defs().len(),
             ),
+            Screen::Dialogue if !self.dialogue_choices.is_empty() => {
+                cycle_cursor(&mut self.dialogue_cursor, 1, self.dialogue_choices.len())
+            }
             Screen::Training => {
                 self.training_cursor(1);
             }

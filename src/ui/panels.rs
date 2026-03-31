@@ -6,7 +6,7 @@ use crate::achievements::achievement_defs;
 use crate::app::{App, TownAction};
 use crate::combat::encounter_def;
 use crate::inventory::{EquipSlot, find_def};
-use crate::world::{AreaId, QuestId, VendorId, area_def, quest_def, vendor_def};
+use crate::world::{AreaId, NpcId, QuestId, VendorId, area_def, npc_def, quest_def, vendor_def};
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Layout, Rect},
@@ -82,6 +82,27 @@ pub fn render_town(app: &App, area: Rect, buf: &mut Buffer) {
             "Completed quests: {}",
             app.world_state.completed_quests.len()
         )),
+        Line::from(format!("Town contacts: {}", NpcId::ALL.len())),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Story lead",
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from(
+            app.world_state
+                .current_story_lead()
+                .and_then(|quest_id| {
+                    let quest = quest_def(quest_id.id())?;
+                    let objective = app
+                        .world_state
+                        .active_quest(quest_id)
+                        .and_then(|progress| quest.objectives.get(progress.objective_index))
+                        .map(|objective| objective.text)
+                        .unwrap_or(quest.summary);
+                    Some(format!("{}: {}", quest.name, objective))
+                })
+                .unwrap_or_else(|| "The road ahead is still unwritten.".to_string()),
+        ),
         Line::from(""),
         Line::from(Span::styled(
             app.status_message
@@ -106,8 +127,111 @@ pub fn render_town(app: &App, area: Rect, buf: &mut Buffer) {
         .render(panels[1], buf);
 
     hint_bar(
-        "↑ ↓ choose    Enter confirm    x explore    t train    c character    i inventory    e equipment    q quests    h achievements    v vendors    r rest",
+        "↑ ↓ choose    Enter confirm    p people    x explore    t train    c character    i inventory    e equipment    q quests    h achievements    v vendors    r rest",
         chunks[2],
+        buf,
+    );
+}
+
+pub fn render_people(app: &App, area: Rect, buf: &mut Buffer) {
+    let outer = Block::bordered()
+        .title(" Hearthmere Voices ")
+        .title_alignment(Alignment::Center)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(GOLD));
+    let inner = outer.inner(area);
+    outer.render(area, buf);
+    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
+    let panels = Layout::horizontal([Constraint::Percentage(38), Constraint::Percentage(62)])
+        .split(chunks[0]);
+    let list = NpcId::ALL
+        .iter()
+        .enumerate()
+        .map(|(idx, npc)| {
+            let def = npc_def(*npc);
+            let style = if idx == app.npc_cursor {
+                selected_style()
+            } else {
+                normal_style()
+            };
+            Line::from(Span::styled(format!("{}  {}", def.name, def.role), style))
+        })
+        .collect::<Vec<_>>();
+    Paragraph::new(list)
+        .block(
+            Block::bordered()
+                .title(" Townsfolk ")
+                .border_type(BorderType::Rounded)
+                .style(dim_style()),
+        )
+        .render(panels[0], buf);
+
+    let npc = NpcId::ALL[app.npc_cursor];
+    let def = npc_def(npc);
+    let story_note = if app
+        .world_state
+        .active_quest(QuestId::LanternsInTheRain)
+        .is_some()
+        && npc == NpcId::CaptainHedd
+    {
+        "Hedd is waiting to brief you on the missing patrol."
+    } else if app
+        .world_state
+        .active_quest(QuestId::ReportToMira)
+        .is_some()
+        && npc == NpcId::ScoutMira
+    {
+        "Mira is ready to read what the woods tried to hide."
+    } else if app.world_state.active_quest(QuestId::AshOnTheWax).is_some()
+        && npc == NpcId::ArcanistSel
+    {
+        "Sel wants to inspect the ash-marked seal from the road."
+    } else if app
+        .world_state
+        .active_quest(QuestId::WordToTheCaptain)
+        .is_some()
+        && npc == NpcId::CaptainHedd
+    {
+        "Hedd needs your full report from the barrow."
+    } else if app
+        .world_state
+        .active_quest(QuestId::CrownInCinders)
+        .is_some()
+        && npc == NpcId::ArcanistSel
+    {
+        "Sel is ready to name the power behind the dead."
+    } else {
+        "No urgent story business, but they may have something to say."
+    };
+    let detail = vec![
+        Line::from(Span::styled(
+            def.name,
+            Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(def.role),
+        Line::from(""),
+        Line::from(def.summary),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Current lead",
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from(story_note),
+        Line::from(""),
+        Line::from("Enter: talk"),
+    ];
+    Paragraph::new(detail)
+        .block(
+            Block::bordered()
+                .title(" Conversation Detail ")
+                .border_type(BorderType::Rounded)
+                .style(dim_style()),
+        )
+        .wrap(ratatui::widgets::Wrap { trim: true })
+        .render(panels[1], buf);
+    hint_bar(
+        "↑ ↓ choose speaker    Enter talk    Esc return",
+        chunks[1],
         buf,
     );
 }
@@ -369,7 +493,7 @@ pub fn render_equipment(app: &App, area: Rect, buf: &mut Buffer) {
 
 pub fn render_quests(app: &App, area: Rect, buf: &mut Buffer) {
     let outer = Block::bordered()
-        .title(" Quest Log ")
+        .title(" Quests ")
         .title_alignment(Alignment::Center)
         .border_type(BorderType::Rounded)
         .style(Style::default().fg(GOLD));
@@ -383,7 +507,8 @@ pub fn render_quests(app: &App, area: Rect, buf: &mut Buffer) {
     .split(inner);
     let panels = Layout::horizontal([Constraint::Percentage(42), Constraint::Percentage(58)])
         .split(chunks[0]);
-    let list = QuestId::ALL
+    let visible_quests = app.visible_quest_ids();
+    let list = visible_quests
         .iter()
         .enumerate()
         .map(|(idx, quest_id)| {
@@ -392,8 +517,10 @@ pub fn render_quests(app: &App, area: Rect, buf: &mut Buffer) {
                 "Complete"
             } else if app.world_state.active_quest(*quest_id).is_some() {
                 "Active"
-            } else {
+            } else if app.world_state.can_accept_quest(*quest_id) {
                 "Available"
+            } else {
+                "Locked"
             };
             let style = if idx == app.quest_cursor {
                 selected_style()
@@ -411,38 +538,68 @@ pub fn render_quests(app: &App, area: Rect, buf: &mut Buffer) {
                 .style(dim_style()),
         )
         .render(panels[0], buf);
-    let quest_id = QuestId::ALL[app.quest_cursor];
-    let quest = quest_def(quest_id.id()).unwrap();
-    let mut detail = vec![
-        Line::from(Span::styled(
-            quest.name,
-            Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from(quest.summary),
-        Line::from(format!("Given by {}", quest.giver)),
-        Line::from(""),
-        Line::from("Objectives:"),
-    ];
-    for objective in quest.objectives {
-        detail.push(Line::from(format!("• {}", objective.text)));
-    }
-    detail.push(Line::from(""));
-    detail.push(Line::from(format!(
-        "Rewards: {} XP, {} gold",
-        quest.rewards.xp, quest.rewards.gold
-    )));
-    if let Some(item) = quest.rewards.item_type.and_then(find_def) {
-        detail.push(Line::from(format!(
-            "Bonus item: {} x{}",
-            item.name, quest.rewards.item_qty
-        )));
-    }
-    if !app.world_state.has_completed(quest_id) && app.world_state.active_quest(quest_id).is_none()
-    {
+    let detail = if let Some(quest_id) = app.selected_visible_quest_id() {
+        let quest = quest_def(quest_id.id()).unwrap();
+        let mut detail = vec![
+            Line::from(Span::styled(
+                quest.name,
+                Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(quest.summary),
+            Line::from(format!("Given by {}", npc_def(quest.giver).name)),
+            Line::from(""),
+            Line::from("Objectives:"),
+        ];
+        for objective in quest.objectives {
+            detail.push(Line::from(format!("• {}", objective.text)));
+        }
         detail.push(Line::from(""));
-        detail.push(Line::from("Enter: accept quest"));
-    }
+        detail.push(Line::from(format!(
+            "Rewards: {} XP, {} gold",
+            quest.rewards.xp, quest.rewards.gold
+        )));
+        if let Some(item) = quest.rewards.item_type.and_then(find_def) {
+            detail.push(Line::from(format!(
+                "Bonus item: {} x{}",
+                item.name, quest.rewards.item_qty
+            )));
+        }
+        if let Some(progress) = app.world_state.active_quest(quest_id) {
+            detail.push(Line::from(""));
+            detail.push(Line::from(format!(
+                "Progress: objective {} of {}",
+                progress.objective_index + 1,
+                quest.objectives.len()
+            )));
+        } else if !app.world_state.has_completed(quest_id)
+            && app.world_state.can_accept_quest(quest_id)
+        {
+            detail.push(Line::from(""));
+            detail.push(Line::from("Enter: accept quest"));
+        } else if !app.world_state.has_completed(quest_id) {
+            detail.push(Line::from(""));
+            if let Some(required) = quest.required_quest.and_then(|id| quest_def(id.id())) {
+                detail.push(Line::from(format!(
+                    "Locked until {} is complete.",
+                    required.name
+                )));
+            } else {
+                detail.push(Line::from("Locked until the story advances."));
+            }
+        }
+        detail
+    } else {
+        vec![
+            Line::from(Span::styled(
+                "No visible quests",
+                Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from("All quests matching this view are hidden."),
+            Line::from("Press c to show completed quests or l to show locked quests."),
+        ]
+    };
     Paragraph::new(detail)
         .block(
             Block::bordered()
@@ -458,7 +615,15 @@ pub fn render_quests(app: &App, area: Rect, buf: &mut Buffer) {
             .render(chunks[1], buf);
     }
     hint_bar(
-        "↑ ↓ choose quest    Enter accept    Esc return",
+        &format!(
+            "↑ ↓ choose quest    Enter accept    c completed:{}    l locked:{}    Esc return",
+            if app.quest_show_completed {
+                "on"
+            } else {
+                "off"
+            },
+            if app.quest_show_locked { "on" } else { "off" }
+        ),
         chunks[2],
         buf,
     );
@@ -724,7 +889,16 @@ pub fn render_dialogue(app: &App, area: Rect, buf: &mut Buffer) {
         .style(Style::default().fg(GOLD));
     let inner = outer.inner(area);
     outer.render(area, buf);
-    let chunks = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
+    let chunks = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(if app.dialogue_choices.is_empty() {
+            0
+        } else {
+            7
+        }),
+        Constraint::Length(2),
+    ])
+    .split(inner);
     let lines = app
         .dialogue_lines
         .iter()
@@ -734,5 +908,48 @@ pub fn render_dialogue(app: &App, area: Rect, buf: &mut Buffer) {
         .alignment(Alignment::Left)
         .wrap(ratatui::widgets::Wrap { trim: false })
         .render(chunks[0], buf);
-    hint_bar("Enter continue", chunks[1], buf);
+    if !app.dialogue_choices.is_empty() {
+        let options = app
+            .dialogue_choices
+            .iter()
+            .enumerate()
+            .map(|(idx, choice)| {
+                let style = if idx == app.dialogue_cursor {
+                    selected_style()
+                } else {
+                    normal_style()
+                };
+                Line::from(Span::styled(
+                    format!(
+                        "{} {}",
+                        if idx == app.dialogue_cursor {
+                            "▶"
+                        } else {
+                            " "
+                        },
+                        choice.label
+                    ),
+                    style,
+                ))
+            })
+            .collect::<Vec<_>>();
+        Paragraph::new(options)
+            .block(
+                Block::bordered()
+                    .title(" Responses ")
+                    .border_type(BorderType::Rounded)
+                    .style(dim_style()),
+            )
+            .wrap(ratatui::widgets::Wrap { trim: true })
+            .render(chunks[1], buf);
+    }
+    hint_bar(
+        if app.dialogue_choices.is_empty() {
+            "Enter continue"
+        } else {
+            "↑ ↓ choose response    Enter confirm    Esc return"
+        },
+        chunks[2],
+        buf,
+    );
 }

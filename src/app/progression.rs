@@ -149,6 +149,13 @@ impl App {
         self.achievements = db::load_achievement_state(&self.pool, character_id).await?;
         self.combat = None;
         self.refresh_meta_achievement_metrics(character_id).await?;
+        if self.world_state.active_quests.is_empty() && self.world_state.completed_quests.is_empty()
+        {
+            self.status_message = Some(
+                "Captain Hedd is looking for someone willing to follow a missing patrol's trail."
+                    .to_string(),
+            );
+        }
         Ok(())
     }
 }

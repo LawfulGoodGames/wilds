@@ -378,6 +378,8 @@ impl CombatState {
         CombatReward {
             xp,
             gold,
+            encounter_name: self.encounter_name.clone(),
+            environment_tags: self.environment_tags.clone(),
             drops,
             defeated_families,
             enemies_defeated: self.enemies.len() as i32,

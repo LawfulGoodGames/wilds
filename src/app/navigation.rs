@@ -1,4 +1,4 @@
-use super::{App, CharacterTab, Screen};
+use super::{App, CharacterTab, DialogueChoice, Screen};
 use crate::db;
 
 impl App {
@@ -17,6 +17,7 @@ impl App {
             }
             Screen::Dialogue => self.screen = self.dialogue_return,
             Screen::Explore
+            | Screen::People
             | Screen::CharacterSheet
             | Screen::Inventory
             | Screen::Equipment
@@ -37,6 +38,12 @@ impl App {
     pub fn open_explore(&mut self) {
         self.explore_cursor = 0;
         self.screen = Screen::Explore;
+        self.status_message = None;
+    }
+
+    pub fn open_people(&mut self) {
+        self.npc_cursor = 0;
+        self.screen = Screen::People;
         self.status_message = None;
     }
 
@@ -103,6 +110,26 @@ impl App {
     pub fn open_dialog(&mut self, title: &str, lines: Vec<String>, return_screen: Screen) {
         self.dialogue_title = title.to_string();
         self.dialogue_lines = lines;
+        self.dialogue_choices.clear();
+        self.dialogue_cursor = 0;
+        self.dialogue_npc = None;
+        self.dialogue_return = return_screen;
+        self.screen = Screen::Dialogue;
+    }
+
+    pub fn open_choice_dialog(
+        &mut self,
+        title: &str,
+        lines: Vec<String>,
+        choices: Vec<DialogueChoice>,
+        npc: crate::world::NpcId,
+        return_screen: Screen,
+    ) {
+        self.dialogue_title = title.to_string();
+        self.dialogue_lines = lines;
+        self.dialogue_choices = choices;
+        self.dialogue_cursor = 0;
+        self.dialogue_npc = Some(npc);
         self.dialogue_return = return_screen;
         self.screen = Screen::Dialogue;
     }

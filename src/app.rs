@@ -14,7 +14,7 @@ use crate::db;
 use crate::event::{AppEvent, Event, EventHandler};
 use crate::inventory::{Equipment, InventoryState};
 use crate::settings::UserSettings;
-use crate::world::WorldState;
+use crate::world::{NpcId, WorldState};
 pub use progression::{active_level_progress, active_xp_to_next};
 use ratatui::DefaultTerminal;
 use sqlx::SqlitePool;
@@ -52,6 +52,7 @@ pub enum Screen {
     LoadGame,
     Options,
     Town,
+    People,
     Explore,
     CharacterSheet,
     Inventory,
@@ -68,6 +69,7 @@ pub enum Screen {
 pub enum TownAction {
     Explore,
     Rest,
+    People,
     Train,
     Shop,
     Inventory,
@@ -79,15 +81,16 @@ pub enum TownAction {
 }
 
 impl TownAction {
-    pub const ALL: [TownAction; 10] = [
+    pub const ALL: [TownAction; 11] = [
         TownAction::Explore,
         TownAction::Rest,
+        TownAction::People,
+        TownAction::Quests,
         TownAction::Train,
         TownAction::Shop,
         TownAction::Inventory,
         TownAction::Equipment,
         TownAction::Character,
-        TownAction::Quests,
         TownAction::Achievements,
         TownAction::LeaveTown,
     ];
@@ -96,12 +99,13 @@ impl TownAction {
         match self {
             Self::Explore => "Explore the Wilds",
             Self::Rest => "Rest at the Inn",
+            Self::People => "Speak with Townsfolk",
             Self::Train => "Train Proficiencies",
             Self::Shop => "Visit Vendors",
             Self::Inventory => "Inventory",
             Self::Equipment => "Equipment",
             Self::Character => "Character Sheet",
-            Self::Quests => "Quest Log",
+            Self::Quests => "Quests",
             Self::Achievements => "Achievements",
             Self::LeaveTown => "Return to Main Menu",
         }
@@ -214,6 +218,14 @@ pub struct TrainingState {
     pub result: Option<TrainingResult>,
 }
 
+#[derive(Debug, Clone)]
+pub struct DialogueChoice {
+    pub label: String,
+    pub response_lines: Vec<String>,
+    pub memory_flag: Option<String>,
+    pub status_message: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct App {
     pub running: bool,
@@ -231,7 +243,10 @@ pub struct App {
     pub combat: Option<CombatState>,
     pub town_cursor: usize,
     pub explore_cursor: usize,
+    pub npc_cursor: usize,
     pub quest_cursor: usize,
+    pub quest_show_completed: bool,
+    pub quest_show_locked: bool,
     pub shop_cursor: usize,
     pub vendor_cursor: usize,
     pub shop_buy_mode: bool,
@@ -243,6 +258,9 @@ pub struct App {
     pub character_tab: CharacterTab,
     pub dialogue_title: String,
     pub dialogue_lines: Vec<String>,
+    pub dialogue_choices: Vec<DialogueChoice>,
+    pub dialogue_cursor: usize,
+    pub dialogue_npc: Option<NpcId>,
     pub dialogue_return: Screen,
     pub status_message: Option<String>,
     pub achievements: AchievementState,
@@ -268,7 +286,10 @@ impl App {
             combat: None,
             town_cursor: 0,
             explore_cursor: 0,
+            npc_cursor: 0,
             quest_cursor: 0,
+            quest_show_completed: false,
+            quest_show_locked: false,
             shop_cursor: 0,
             vendor_cursor: 0,
             shop_buy_mode: true,
@@ -280,6 +301,9 @@ impl App {
             character_tab: CharacterTab::Proficiencies,
             dialogue_title: String::new(),
             dialogue_lines: vec![],
+            dialogue_choices: vec![],
+            dialogue_cursor: 0,
+            dialogue_npc: None,
             dialogue_return: Screen::Town,
             status_message: None,
             achievements: AchievementState::default(),
@@ -324,6 +348,7 @@ impl App {
             AppEvent::Right => self.handle_right().await?,
             AppEvent::NextTab => self.next_character_tab(),
             AppEvent::OpenExplore => self.open_explore(),
+            AppEvent::OpenPeople => self.open_people(),
             AppEvent::OpenCharacter => self.open_character_sheet(),
             AppEvent::OpenInventory => self.open_inventory().await?,
             AppEvent::OpenEquipment => self.open_equipment().await?,
@@ -338,6 +363,8 @@ impl App {
             AppEvent::ShopPreviousVendor => self.shop_cycle_vendor(-1),
             AppEvent::ShopTransaction => self.shop_transaction().await?,
             AppEvent::QuestAccept => self.accept_selected_quest().await?,
+            AppEvent::QuestToggleCompleted => self.toggle_quest_completed_filter(),
+            AppEvent::QuestToggleLocked => self.toggle_quest_locked_filter(),
             AppEvent::CombatTabWeapon => self.set_combat_tab(ActionTab::Weapon),
             AppEvent::CombatTabAbility => self.set_combat_tab(ActionTab::Ability),
             AppEvent::CombatTabItem => self.set_combat_tab(ActionTab::Item),
@@ -396,6 +423,7 @@ impl App {
             }
             Screen::Town => match TownAction::ALL[self.town_cursor] {
                 TownAction::Explore => self.open_explore(),
+                TownAction::People => self.open_people(),
                 TownAction::Train => self.open_training(),
                 TownAction::Character => self.open_character_sheet(),
                 TownAction::Inventory => self.open_inventory().await?,
@@ -408,7 +436,12 @@ impl App {
             },
             Screen::Inventory => self.use_inventory_item().await?,
             Screen::Equipment => self.unequip_item().await?,
+            Screen::People => self.talk_to_selected_npc().await?,
             Screen::Training => self.start_training_session().await?,
+            Screen::Dialogue if !self.dialogue_choices.is_empty() => {
+                self.resolve_dialogue_choice().await?
+            }
+            Screen::Dialogue => self.go_back().await?,
             _ => {}
         }
         Ok(())

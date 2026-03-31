@@ -444,8 +444,8 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
     },
     ItemDef {
         item_type: "bandit_seal",
-        name: "Bandit Seal",
-        description: "Stamped insignia stolen from raider captains.",
+        name: "Blackened Seal",
+        description: "A soot-dark seal etched with an ash-mark that does not belong to any common raider band.",
         kind: ItemKind::Loot,
         rarity: ItemRarity::Uncommon,
         base_value: 20,

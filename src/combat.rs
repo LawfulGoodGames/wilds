@@ -303,6 +303,8 @@ pub enum PlayerAction {
 pub struct CombatReward {
     pub xp: i32,
     pub gold: i32,
+    pub encounter_name: String,
+    pub environment_tags: Vec<String>,
     pub drops: Vec<(String, i32)>,
     pub defeated_families: Vec<String>,
     pub enemies_defeated: i32,

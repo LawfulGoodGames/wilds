@@ -15,7 +15,7 @@ use creation::render_character_creation;
 use menu::{render_load_game, render_main_menu, render_options};
 use panels::{
     render_achievements, render_dialogue, render_equipment, render_explore, render_inventory,
-    render_quests, render_shop, render_town,
+    render_people, render_quests, render_shop, render_town,
 };
 use shared::{
     GOLD, dim_style, hint_bar, normal_style, progress_bar, render_centered, render_item_detail,
@@ -39,6 +39,7 @@ impl Widget for &App {
             Screen::LoadGame => render_load_game(self, area, buf),
             Screen::Options => render_options(self, area, buf),
             Screen::Town => render_town(self, area, buf),
+            Screen::People => render_people(self, area, buf),
             Screen::Explore => render_explore(self, area, buf),
             Screen::CharacterSheet => render_character_sheet(self, area, buf),
             Screen::Inventory => render_inventory(self, area, buf),
