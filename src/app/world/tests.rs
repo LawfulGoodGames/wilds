@@ -4,6 +4,66 @@ use crate::world::{NpcId, ObjectiveKind, QuestId, QuestProgress, quest_def};
 use sqlx::SqlitePool;
 
 #[tokio::test]
+async fn main_story_chain_always_has_a_next_lead_until_the_end() {
+    let pool = SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite pool");
+    let mut app = App::new(pool, UserSettings::default());
+
+    for (idx, expected) in QuestId::ALL.iter().copied().enumerate() {
+        assert_eq!(
+            app.world_state.current_story_lead(),
+            Some(expected),
+            "expected current lead to be {} at step {}",
+            expected.id(),
+            idx
+        );
+
+        assert!(
+            app.world_state.accept_quest(expected),
+            "expected {} to be acceptible",
+            expected.id()
+        );
+
+        let objective_count = quest_def(expected.id())
+            .expect("quest def exists")
+            .objectives
+            .len();
+        let progress = app
+            .world_state
+            .active_quest_mut(expected)
+            .expect("active quest exists");
+        progress.objective_index = objective_count;
+
+        let rewards = app
+            .complete_ready_quests()
+            .await
+            .expect("quest completion succeeds");
+        assert!(
+            !rewards.is_empty(),
+            "expected {} to complete with rewards",
+            expected.id()
+        );
+        assert!(
+            app.world_state.has_completed(expected),
+            "expected {} to be marked complete",
+            expected.id()
+        );
+
+        let next = app.world_state.current_story_lead();
+        if idx + 1 < QuestId::ALL.len() {
+            assert_eq!(
+                next,
+                Some(QuestId::ALL[idx + 1]),
+                "expected next lead after {} to be {}",
+                expected.id(),
+                QuestId::ALL[idx + 1].id()
+            );
+        } else {
+            assert_eq!(next, None, "expected no lead after final quest");
+        }
+    }
+}
+
+#[tokio::test]
 async fn same_speaker_story_handoffs_auto_accept_the_next_quest() {
     let handoffs = QuestId::ALL
         .windows(2)

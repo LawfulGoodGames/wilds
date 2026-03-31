@@ -276,7 +276,7 @@ impl App {
         Ok(lines)
     }
 
-    async fn complete_ready_quests(
+    pub(super) async fn complete_ready_quests(
         &mut self,
     ) -> color_eyre::Result<Vec<(i32, i32, Option<String>, i32, Vec<String>)>> {
         let mut rewards = vec![];
