@@ -439,15 +439,15 @@ pub async fn save_world_state(
     .execute(pool)
     .await?;
 
+    sqlx::query("DELETE FROM quests WHERE character_id = ?1")
+        .bind(character_id)
+        .execute(pool)
+        .await?;
+
     for quest in &state.active_quests {
         sqlx::query(
             "INSERT INTO quests (character_id, quest_id, accepted, completed, objective_index, progress)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(character_id, quest_id) DO UPDATE SET
-                accepted = excluded.accepted,
-                completed = excluded.completed,
-                objective_index = excluded.objective_index,
-                progress = excluded.progress",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )
         .bind(character_id)
         .bind(&quest.quest_id)

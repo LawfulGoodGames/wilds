@@ -205,3 +205,48 @@ async fn quit_stops_dialogue_audio() {
     assert_eq!(app.dialogue_audio.active_clip_id, None);
     assert!(!app.dialogue_audio.is_playing());
 }
+
+#[tokio::test]
+async fn completed_story_quest_does_not_retrigger_from_stale_active_entry() {
+    let pool = SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite pool");
+    let mut app = App::new(pool, UserSettings::default());
+    app.npc_cursor = NpcId::ALL
+        .iter()
+        .position(|npc| *npc == NpcId::CaptainHedd)
+        .expect("hedd exists");
+
+    app.world_state
+        .completed_quests
+        .push(QuestId::LanternsInTheRain.id().to_string());
+    app.world_state.active_quests.push(QuestProgress {
+        quest_id: QuestId::LanternsInTheRain.id().to_string(),
+        accepted: true,
+        completed: false,
+        objective_index: 0,
+        progress: 0,
+    });
+
+    app.talk_to_selected_npc().await.expect("talk succeeds");
+
+    assert!(
+        app.world_state
+            .active_quest(QuestId::LanternsInTheRain)
+            .is_none(),
+        "stale active quest should be discarded"
+    );
+    assert_eq!(
+        app.world_state
+            .completed_quests
+            .iter()
+            .filter(|quest_id| *quest_id == QuestId::LanternsInTheRain.id())
+            .count(),
+        1,
+        "completed quest should not be duplicated"
+    );
+    assert!(
+        app.dialogue_lines
+            .iter()
+            .all(|line| !line.contains("Quest complete: Lanterns in the Rain.")),
+        "completed quest should not pay out or complete again"
+    );
+}

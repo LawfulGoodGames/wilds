@@ -108,6 +108,12 @@ impl App {
             let Some(def) = quest_def(&quest_id) else {
                 continue;
             };
+            if self.world_state.has_completed(def.id) {
+                self.world_state
+                    .active_quests
+                    .retain(|progress| progress.quest_id != def.id.id());
+                continue;
+            }
             let Some(progress) = self.world_state.active_quest_mut(def.id) else {
                 continue;
             };
@@ -201,6 +207,12 @@ impl App {
             let Some(def) = quest_def(&quest_id) else {
                 continue;
             };
+            if self.world_state.has_completed(def.id) {
+                self.world_state
+                    .active_quests
+                    .retain(|progress| progress.quest_id != def.id.id());
+                continue;
+            }
             let Some(progress) = self.world_state.active_quest_mut(def.id) else {
                 continue;
             };
@@ -290,6 +302,12 @@ impl App {
             let Some(def) = quest_def(&quest_id) else {
                 continue;
             };
+            if self.world_state.has_completed(def.id) {
+                self.world_state
+                    .active_quests
+                    .retain(|progress| progress.quest_id != def.id.id());
+                continue;
+            }
             let complete_now = self
                 .world_state
                 .active_quest(def.id)
@@ -298,9 +316,11 @@ impl App {
             if !complete_now {
                 continue;
             }
-            self.world_state
-                .completed_quests
-                .push(def.id.id().to_string());
+            if !self.world_state.has_completed(def.id) {
+                self.world_state
+                    .completed_quests
+                    .push(def.id.id().to_string());
+            }
             self.world_state
                 .active_quests
                 .retain(|progress| progress.quest_id != def.id.id());
