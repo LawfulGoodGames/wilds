@@ -1,11 +1,13 @@
 pub mod achievements;
 pub mod app;
+pub mod audio;
 pub mod character;
 pub mod combat;
 pub mod db;
 pub mod event;
 pub mod inventory;
 pub mod settings;
+pub mod town_dialogue;
 pub mod ui;
 pub mod world;
 

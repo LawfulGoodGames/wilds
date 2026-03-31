@@ -5,6 +5,7 @@ description = "Local TUI RPG"
 authors = ["Christopher Law <christopher-law@live.com>"]
 license = "MIT"
 edition = "2024"
+default-run = "wilds"
 
 [dependencies]
 crossterm = { version = "0.28.1", features = ["event-stream"] }
@@ -15,6 +16,9 @@ color-eyre = "0.6.3"
 serde = { version = "1.0.228", features = ["derive"] }
 sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "sqlite", "macros"] }
 rand = "0.10.0"
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls"] }
+serde_json = "1.0.145"
+dotenvy = "0.15.7"
 
 # Read the optimization guideline for more details: https://ratatui.rs/recipes/apps/release-your-app/#optimizations
 [profile.release]

@@ -140,3 +140,68 @@ async fn same_speaker_story_handoffs_auto_accept_the_next_quest() {
         );
     }
 }
+
+#[tokio::test]
+async fn entering_dialogue_marks_audio_active_and_back_stops_it() {
+    let pool = SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite pool");
+    let mut app = App::new(pool, UserSettings::default());
+    app.npc_cursor = NpcId::ALL
+        .iter()
+        .position(|npc| *npc == NpcId::CaptainHedd)
+        .expect("hedd exists");
+
+    app.talk_to_selected_npc().await.expect("talk succeeds");
+
+    assert_eq!(
+        app.dialogue_audio.active_clip_id.as_deref(),
+        Some("hedd.first_meeting")
+    );
+    assert!(app.dialogue_audio.is_playing());
+
+    app.go_back().await.expect("back succeeds");
+
+    assert_eq!(app.dialogue_audio.active_clip_id, None);
+    assert!(!app.dialogue_audio.is_playing());
+}
+
+#[tokio::test]
+async fn choosing_dialogue_response_replaces_scene_audio() {
+    let pool = SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite pool");
+    let mut app = App::new(pool, UserSettings::default());
+    app.npc_cursor = NpcId::ALL
+        .iter()
+        .position(|npc| *npc == NpcId::CaptainHedd)
+        .expect("hedd exists");
+
+    app.talk_to_selected_npc().await.expect("talk succeeds");
+    app.dialogue_cursor = 1;
+
+    app.resolve_dialogue_choice()
+        .await
+        .expect("choice resolution succeeds");
+
+    assert_eq!(
+        app.dialogue_audio.active_clip_id.as_deref(),
+        Some("hedd.response.coin")
+    );
+    assert!(app.dialogue_audio.is_playing());
+}
+
+#[tokio::test]
+async fn quit_stops_dialogue_audio() {
+    let pool = SqlitePool::connect_lazy("sqlite::memory:").expect("lazy sqlite pool");
+    let mut app = App::new(pool, UserSettings::default());
+    app.npc_cursor = NpcId::ALL
+        .iter()
+        .position(|npc| *npc == NpcId::CaptainHedd)
+        .expect("hedd exists");
+
+    app.talk_to_selected_npc().await.expect("talk succeeds");
+    assert!(app.dialogue_audio.is_playing());
+
+    app.quit();
+
+    assert!(!app.running);
+    assert_eq!(app.dialogue_audio.active_clip_id, None);
+    assert!(!app.dialogue_audio.is_playing());
+}

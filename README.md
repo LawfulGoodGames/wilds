@@ -36,6 +36,31 @@ Requires Rust stable.
 cargo run
 ```
 
+`cargo run` now starts the main game binary by default.
+
+## Voice Generation
+
+Town dialogue voice lines are generated with Deepgram TTS.
+
+Setup:
+
+- Create a `.env` file in the project root with `DEEPGRAM_API_KEY=your_key_here`
+- The generator loads `.env` automatically
+
+Generate or regenerate the voice files:
+
+```bash
+cargo run --bin generate_voice_lines -- --force
+```
+
+Generate only missing voice files:
+
+```bash
+cargo run --bin generate_voice_lines -- --missing-only
+```
+
+This writes WAV files into `src/audio/`.
+
 ## Release Process
 
 Cross-platform release artifacts are built from tags by `.github/workflows/release.yml`.

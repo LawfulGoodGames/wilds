@@ -1,4 +1,5 @@
 use super::{App, CharacterTab, DialogueChoice, Screen};
+use crate::audio;
 use crate::db;
 
 impl App {
@@ -15,7 +16,10 @@ impl App {
                     self.creation.step = self.creation.step.prev();
                 }
             }
-            Screen::Dialogue => self.screen = self.dialogue_return,
+            Screen::Dialogue => {
+                audio::stop(&mut self.dialogue_audio);
+                self.screen = self.dialogue_return;
+            }
             Screen::Explore
             | Screen::People
             | Screen::CharacterSheet
@@ -135,6 +139,7 @@ impl App {
     }
 
     pub fn quit(&mut self) {
+        audio::stop(&mut self.dialogue_audio);
         self.running = false;
     }
 }

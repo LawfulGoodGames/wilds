@@ -6,6 +6,7 @@ mod training;
 mod world;
 
 use crate::achievements::AchievementState;
+use crate::audio::DialogueAudioState;
 use crate::character::{
     CharacterCreation, CreationStep, MajorSkill, MinorSkill, SavedCharacter, TrainingSessionPlan,
 };
@@ -224,6 +225,7 @@ pub struct DialogueChoice {
     pub response_lines: Vec<String>,
     pub memory_flag: Option<String>,
     pub status_message: Option<String>,
+    pub audio_id: Option<&'static str>,
 }
 
 #[derive(Debug)]
@@ -262,6 +264,7 @@ pub struct App {
     pub dialogue_cursor: usize,
     pub dialogue_npc: Option<NpcId>,
     pub dialogue_return: Screen,
+    pub dialogue_audio: DialogueAudioState,
     pub status_message: Option<String>,
     pub achievements: AchievementState,
     pool: SqlitePool,
@@ -305,6 +308,7 @@ impl App {
             dialogue_cursor: 0,
             dialogue_npc: None,
             dialogue_return: Screen::Town,
+            dialogue_audio: DialogueAudioState::default(),
             status_message: None,
             achievements: AchievementState::default(),
             pool,
