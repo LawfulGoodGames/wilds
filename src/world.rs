@@ -390,6 +390,14 @@ const QUARTERMASTER_STOCK: &[VendorItem] = &[
         item_type: "brigandine",
         stock: 1,
     },
+    VendorItem {
+        item_type: "kingsguard_greatsword",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "bastion_shield",
+        stock: 1,
+    },
 ];
 
 const ARCANIST_STOCK: &[VendorItem] = &[
@@ -420,6 +428,14 @@ const ARCANIST_STOCK: &[VendorItem] = &[
     VendorItem {
         item_type: "greater_mana_tonic",
         stock: 2,
+    },
+    VendorItem {
+        item_type: "archmage_focus",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "sunfire_talisman",
+        stock: 1,
     },
 ];
 
@@ -459,6 +475,14 @@ const PROVISIONER_STOCK: &[VendorItem] = &[
     VendorItem {
         item_type: "greater_stamina_draught",
         stock: 2,
+    },
+    VendorItem {
+        item_type: "duskrunner_bow",
+        stock: 1,
+    },
+    VendorItem {
+        item_type: "scoutmaster_boots",
+        stock: 1,
     },
 ];
 

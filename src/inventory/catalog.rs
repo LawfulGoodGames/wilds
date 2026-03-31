@@ -112,6 +112,21 @@ const WARDEN_BLADE_ATTACKS: &[AttackOption] = &[
     },
 ];
 
+const KINGSGUARD_GREATSWORD_ATTACKS: &[AttackOption] = &[
+    AttackOption {
+        name: "Overhead Cleave",
+        accuracy_bonus: 4,
+        min_damage: 13,
+        max_damage: 19,
+    },
+    AttackOption {
+        name: "Commander's Drive",
+        accuracy_bonus: 2,
+        min_damage: 16,
+        max_damage: 22,
+    },
+];
+
 const LONGBOW_ATTACKS: &[AttackOption] = &[
     AttackOption {
         name: "Piercing Shot",
@@ -127,6 +142,21 @@ const LONGBOW_ATTACKS: &[AttackOption] = &[
     },
 ];
 
+const DUSKRUNNER_BOW_ATTACKS: &[AttackOption] = &[
+    AttackOption {
+        name: "Silent Flight",
+        accuracy_bonus: 5,
+        min_damage: 12,
+        max_damage: 18,
+    },
+    AttackOption {
+        name: "Hawkshot",
+        accuracy_bonus: 3,
+        min_damage: 15,
+        max_damage: 21,
+    },
+];
+
 const STORMGLASS_ROD_ATTACKS: &[AttackOption] = &[
     AttackOption {
         name: "Storm Needle",
@@ -139,6 +169,21 @@ const STORMGLASS_ROD_ATTACKS: &[AttackOption] = &[
         accuracy_bonus: 2,
         min_damage: 11,
         max_damage: 17,
+    },
+];
+
+const ARCHMAGE_FOCUS_ATTACKS: &[AttackOption] = &[
+    AttackOption {
+        name: "Solar Flare",
+        accuracy_bonus: 4,
+        min_damage: 12,
+        max_damage: 17,
+    },
+    AttackOption {
+        name: "Crown Burst",
+        accuracy_bonus: 3,
+        min_damage: 15,
+        max_damage: 20,
     },
 ];
 
@@ -330,6 +375,30 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
         },
     },
     ItemDef {
+        item_type: "kingsguard_greatsword",
+        name: "Kingsguard Greatsword",
+        description: "A two-handed wall of steel forged for royal bodyguards expected to break elite lines head-on.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Epic,
+        base_value: 760,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Weapon),
+        weapon_kind: Some(WeaponKind::Melee),
+        attacks: KINGSGUARD_GREATSWORD_ATTACKS,
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 6,
+            spell_power: 0,
+            crit_bonus: 3,
+            initiative_bonus: 1,
+            resistances: ResistanceProfile {
+                physical: 1,
+                ..ZERO_RESISTANCES
+            },
+        },
+    },
+    ItemDef {
         item_type: "twin_daggers",
         name: "Twin Daggers",
         description: "Light blades built for precise openings and dirty work.",
@@ -401,6 +470,27 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
         },
     },
     ItemDef {
+        item_type: "duskrunner_bow",
+        name: "Duskrunner Bow",
+        description: "A black-limbed war bow tuned for veteran scouts who kill before the enemy spots the ridge line.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Epic,
+        base_value: 720,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Weapon),
+        weapon_kind: Some(WeaponKind::Ranged),
+        attacks: DUSKRUNNER_BOW_ATTACKS,
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 5,
+            spell_power: 0,
+            crit_bonus: 4,
+            initiative_bonus: 3,
+            resistances: ZERO_RESISTANCES,
+        },
+    },
+    ItemDef {
         item_type: "apprentice_staff",
         name: "Apprentice Staff",
         description: "A runed staff that steadies novice channeling.",
@@ -467,6 +557,31 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
         },
     },
     ItemDef {
+        item_type: "archmage_focus",
+        name: "Archmage Focus",
+        description: "A cathedral-cut crystal focus that turns disciplined spellwork into devastating battlefield sorcery.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Epic,
+        base_value: 780,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Weapon),
+        weapon_kind: Some(WeaponKind::Magic),
+        attacks: ARCHMAGE_FOCUS_ATTACKS,
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 2,
+            spell_power: 13,
+            crit_bonus: 3,
+            initiative_bonus: 2,
+            resistances: ResistanceProfile {
+                fire: 2,
+                lightning: 2,
+                ..ZERO_RESISTANCES
+            },
+        },
+    },
+    ItemDef {
         item_type: "wooden_shield",
         name: "Wooden Shield",
         description: "Simple protection that keeps the worst of a blow off your ribs.",
@@ -510,6 +625,31 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
             initiative_bonus: 0,
             resistances: ResistanceProfile {
                 physical: 4,
+                ..ZERO_RESISTANCES
+            },
+        },
+    },
+    ItemDef {
+        item_type: "bastion_shield",
+        name: "Bastion Shield",
+        description: "A reinforced line-breaker shield meant for champions who hold the breach while everyone else falls back.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Epic,
+        base_value: 620,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Shield),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 9,
+            attack_bonus: 0,
+            spell_power: 0,
+            crit_bonus: 0,
+            initiative_bonus: 0,
+            resistances: ResistanceProfile {
+                physical: 6,
+                holy: 1,
                 ..ZERO_RESISTANCES
             },
         },
@@ -700,6 +840,57 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
                 holy: 3,
                 shadow: 3,
                 poison: 1,
+                ..ZERO_RESISTANCES
+            },
+        },
+    },
+    ItemDef {
+        item_type: "sunfire_talisman",
+        name: "Sunfire Talisman",
+        description: "A gold-bound charm of mirrored sigils that rewards casters confident enough to stand inside the blast radius.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Epic,
+        base_value: 540,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Neck),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 0,
+            attack_bonus: 1,
+            spell_power: 6,
+            crit_bonus: 2,
+            initiative_bonus: 1,
+            resistances: ResistanceProfile {
+                fire: 2,
+                holy: 4,
+                shadow: 2,
+                ..ZERO_RESISTANCES
+            },
+        },
+    },
+    ItemDef {
+        item_type: "scoutmaster_boots",
+        name: "Scoutmaster Boots",
+        description: "Trail-boots stitched for outriders who survive by moving first and never giving poison a second minute to work.",
+        kind: ItemKind::Equipment,
+        rarity: ItemRarity::Epic,
+        base_value: 460,
+        stackable: false,
+        effects: &[],
+        equip_slot: Some(EquipSlot::Feet),
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: EquipmentStats {
+            armor: 2,
+            attack_bonus: 0,
+            spell_power: 0,
+            crit_bonus: 2,
+            initiative_bonus: 6,
+            resistances: ResistanceProfile {
+                frost: 1,
+                poison: 2,
                 ..ZERO_RESISTANCES
             },
         },
