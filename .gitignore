@@ -1,3 +1,4 @@
 /target
 wilds.db
 .env
+.DS_Store
