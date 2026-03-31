@@ -46,6 +46,8 @@ pub enum AppEvent {
     CombatUseSelected,
     CombatDefend,
     CombatFlee,
+    DetailScrollUp,
+    DetailScrollDown,
     Quit,
 }
 

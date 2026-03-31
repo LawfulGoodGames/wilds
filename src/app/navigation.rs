@@ -41,6 +41,7 @@ impl App {
     pub fn open_character_sheet(&mut self) {
         self.character_tab = CharacterTab::Proficiencies;
         self.character_cursor = 0;
+        self.detail_scroll = 0;
         self.screen = Screen::CharacterSheet;
     }
 
@@ -61,6 +62,7 @@ impl App {
         self.inventory.items = db::load_inventory(&self.pool, ch.id).await?;
         self.inventory.cursor = 0;
         self.inventory.last_use_message = None;
+        self.detail_scroll = 0;
         self.screen = Screen::Inventory;
         Ok(())
     }
@@ -72,6 +74,7 @@ impl App {
         self.equipment = db::load_equipment(&self.pool, ch.id).await?;
         self.equipment_cursor = 0;
         self.status_message = None;
+        self.detail_scroll = 0;
         self.screen = Screen::Equipment;
         Ok(())
     }
@@ -84,6 +87,7 @@ impl App {
         self.vendor_cursor = 0;
         self.shop_cursor = 0;
         self.shop_buy_mode = true;
+        self.detail_scroll = 0;
         self.screen = Screen::Shop;
         Ok(())
     }

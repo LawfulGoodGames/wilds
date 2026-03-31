@@ -7,7 +7,7 @@ use crate::combat::ActionTab;
 use crate::event::AppEvent;
 use crate::inventory::EquipSlot;
 use crate::settings::OPTIONS_COUNT;
-use crate::world::{AreaId, QuestId};
+use crate::world::{AreaId, QuestId, VendorId, vendor_def};
 
 impl App {
     pub(super) fn handle_key_events(&mut self, key_event: KeyEvent) -> color_eyre::Result<()> {
@@ -102,6 +102,8 @@ impl App {
             Screen::Inventory => match key_event.code {
                 KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
+                KeyCode::Char('[') => self.events.send(AppEvent::DetailScrollUp),
+                KeyCode::Char(']') => self.events.send(AppEvent::DetailScrollDown),
                 KeyCode::Enter => self.events.send(AppEvent::Confirm),
                 KeyCode::Char('e') => self.events.send(AppEvent::Right),
                 KeyCode::Esc => self.events.send(AppEvent::Back),
@@ -110,6 +112,8 @@ impl App {
             Screen::Equipment => match key_event.code {
                 KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
+                KeyCode::Char('[') => self.events.send(AppEvent::DetailScrollUp),
+                KeyCode::Char(']') => self.events.send(AppEvent::DetailScrollDown),
                 KeyCode::Enter => self.events.send(AppEvent::Confirm),
                 KeyCode::Esc => self.events.send(AppEvent::Back),
                 _ => {}
@@ -130,6 +134,8 @@ impl App {
             Screen::Shop => match key_event.code {
                 KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
                 KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
+                KeyCode::Char('[') => self.events.send(AppEvent::DetailScrollUp),
+                KeyCode::Char(']') => self.events.send(AppEvent::DetailScrollDown),
                 KeyCode::Enter => self.events.send(AppEvent::ShopTransaction),
                 KeyCode::Tab => self.events.send(AppEvent::ShopToggleMode),
                 KeyCode::Left | KeyCode::Char('h') => {
@@ -179,15 +185,24 @@ impl App {
             Screen::CharacterSheet => {
                 self.character_cursor = self.character_cursor.saturating_sub(1)
             }
-            Screen::Inventory => self.inventory.cursor_up(),
-            Screen::Equipment => cycle_cursor(&mut self.equipment_cursor, -1, EquipSlot::ALL.len()),
+            Screen::Inventory => {
+                self.inventory.cursor_up();
+                self.detail_scroll = 0;
+            }
+            Screen::Equipment => {
+                cycle_cursor(&mut self.equipment_cursor, -1, EquipSlot::ALL.len());
+                self.detail_scroll = 0;
+            }
             Screen::Quests => cycle_cursor(&mut self.quest_cursor, -1, QuestId::ALL.len()),
             Screen::Achievements => cycle_cursor(
                 &mut self.achievement_cursor,
                 -1,
                 achievements::achievement_defs().len(),
             ),
-            Screen::Shop => self.shop_cursor = self.shop_cursor.saturating_sub(1),
+            Screen::Shop => {
+                self.shop_cursor = self.shop_cursor.saturating_sub(1);
+                self.detail_scroll = 0;
+            }
             Screen::CharacterCreation => match self.creation.step {
                 CreationStep::Race => {
                     cycle_cursor(&mut self.creation.race_cursor, -1, Race::ALL.len())
@@ -218,15 +233,38 @@ impl App {
             Screen::Town => cycle_cursor(&mut self.town_cursor, 1, TownAction::ALL.len()),
             Screen::Explore => cycle_cursor(&mut self.explore_cursor, 1, AreaId::ALL.len()),
             Screen::CharacterSheet => self.character_cursor += 1,
-            Screen::Inventory => self.inventory.cursor_down(),
-            Screen::Equipment => cycle_cursor(&mut self.equipment_cursor, 1, EquipSlot::ALL.len()),
+            Screen::Inventory => {
+                self.inventory.cursor_down();
+                self.detail_scroll = 0;
+            }
+            Screen::Equipment => {
+                cycle_cursor(&mut self.equipment_cursor, 1, EquipSlot::ALL.len());
+                self.detail_scroll = 0;
+            }
             Screen::Quests => cycle_cursor(&mut self.quest_cursor, 1, QuestId::ALL.len()),
             Screen::Achievements => cycle_cursor(
                 &mut self.achievement_cursor,
                 1,
                 achievements::achievement_defs().len(),
             ),
-            Screen::Shop => self.shop_cursor += 1,
+            Screen::Shop => {
+                let len = if self.shop_buy_mode {
+                    vendor_def(VendorId::ALL[self.vendor_cursor])
+                        .inventory
+                        .len()
+                } else {
+                    self.inventory.items.len()
+                };
+                if !self.shop_buy_mode {
+                    self.inventory.clamp_cursor();
+                }
+                if len > 0 {
+                    self.shop_cursor = (self.shop_cursor + 1).min(len.saturating_sub(1));
+                } else {
+                    self.shop_cursor = 0;
+                }
+                self.detail_scroll = 0;
+            }
             Screen::CharacterCreation => match self.creation.step {
                 CreationStep::Race => {
                     cycle_cursor(&mut self.creation.race_cursor, 1, Race::ALL.len())
@@ -340,6 +378,10 @@ impl App {
 
     pub(super) fn next_character_tab(&mut self) {
         self.change_character_tab(1);
+    }
+
+    pub(super) fn scroll_detail(&mut self, delta: i32) {
+        self.detail_scroll = (self.detail_scroll as i32 + delta).max(0) as u16;
     }
 }
 

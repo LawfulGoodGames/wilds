@@ -63,39 +63,39 @@ pub enum Screen {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TownAction {
     Explore,
+    Rest,
+    Shop,
     Character,
     Inventory,
     Equipment,
     Quests,
     Achievements,
-    Shop,
-    Rest,
     LeaveTown,
 }
 
 impl TownAction {
     pub const ALL: [TownAction; 9] = [
         TownAction::Explore,
+        TownAction::Rest,
+        TownAction::Shop,
         TownAction::Character,
         TownAction::Inventory,
         TownAction::Equipment,
         TownAction::Quests,
         TownAction::Achievements,
-        TownAction::Shop,
-        TownAction::Rest,
         TownAction::LeaveTown,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Explore => "Explore the Wilds",
+            Self::Rest => "Rest at the Inn",
+            Self::Shop => "Visit Vendors",
             Self::Character => "Character Sheet",
             Self::Inventory => "Inventory",
             Self::Equipment => "Equipment",
             Self::Quests => "Quest Log",
             Self::Achievements => "Achievements",
-            Self::Shop => "Visit Vendors",
-            Self::Rest => "Rest at the Inn",
             Self::LeaveTown => "Return to Main Menu",
         }
     }
@@ -183,6 +183,7 @@ pub struct App {
     pub shop_cursor: usize,
     pub vendor_cursor: usize,
     pub shop_buy_mode: bool,
+    pub detail_scroll: u16,
     pub equipment_cursor: usize,
     pub achievement_cursor: usize,
     pub character_cursor: usize,
@@ -220,6 +221,7 @@ impl App {
             shop_cursor: 0,
             vendor_cursor: 0,
             shop_buy_mode: true,
+            detail_scroll: 0,
             equipment_cursor: 0,
             achievement_cursor: 0,
             character_cursor: 0,
@@ -308,6 +310,8 @@ impl App {
                 self.handle_explicit_combat_action(PlayerAction::Flee)
                     .await?
             }
+            AppEvent::DetailScrollUp => self.scroll_detail(-4),
+            AppEvent::DetailScrollDown => self.scroll_detail(4),
             AppEvent::Quit => self.quit(),
         }
         Ok(())

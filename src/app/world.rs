@@ -145,11 +145,13 @@ impl App {
     pub fn toggle_shop_mode(&mut self) {
         self.shop_buy_mode = !self.shop_buy_mode;
         self.shop_cursor = 0;
+        self.detail_scroll = 0;
     }
 
     pub fn shop_cycle_vendor(&mut self, dir: i32) {
         super::input::cycle_cursor(&mut self.vendor_cursor, dir, VendorId::ALL.len());
         self.shop_cursor = 0;
+        self.detail_scroll = 0;
     }
 
     pub async fn shop_transaction(&mut self) -> color_eyre::Result<()> {

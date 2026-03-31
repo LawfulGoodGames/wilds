@@ -60,8 +60,9 @@ impl CombatState {
         self.free_item_used = false;
         self.advance_turn();
         let outcome = self.resolve_enemy_round();
+        let added_entries = self.log.len().saturating_sub(start_len);
         self.trim_log();
-        self.update_new_entries(start_len);
+        self.new_log_entries = added_entries.min(self.log.len());
         outcome
     }
 

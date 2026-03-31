@@ -1,5 +1,6 @@
 use rand::RngExt;
 
+use crate::achievements::AchievementDef;
 use crate::app::{ActiveTraining, App, ProficiencyTarget, TRAINING_TICKS_PER_HOUR};
 use crate::character::{
     MAX_COMBAT_PROFICIENCY_RANK, MAX_PROFICIENCY_LEVEL, MajorSkill, level_progress_pct,
@@ -159,6 +160,9 @@ impl App {
         amount: i32,
     ) -> color_eyre::Result<Vec<String>> {
         let unlocked = self.achievements.record_increment(metric, amount);
+        let reward_messages = self
+            .grant_achievement_rewards(character_id, &unlocked)
+            .await?;
         db::save_achievement_metric(
             &self.pool,
             character_id,
@@ -166,7 +170,7 @@ impl App {
             self.achievements.progress_for(metric),
         )
         .await?;
-        Ok(unlocked.into_iter().map(|def| def.name).collect())
+        Ok(reward_messages)
     }
 
     pub(super) async fn achievement_set_max(
@@ -176,6 +180,9 @@ impl App {
         value: i32,
     ) -> color_eyre::Result<Vec<String>> {
         let unlocked = self.achievements.record_max(metric, value);
+        let reward_messages = self
+            .grant_achievement_rewards(character_id, &unlocked)
+            .await?;
         db::save_achievement_metric(
             &self.pool,
             character_id,
@@ -183,7 +190,49 @@ impl App {
             self.achievements.progress_for(metric),
         )
         .await?;
-        Ok(unlocked.into_iter().map(|def| def.name).collect())
+        Ok(reward_messages)
+    }
+
+    async fn grant_achievement_rewards(
+        &mut self,
+        character_id: i64,
+        unlocked: &[AchievementDef],
+    ) -> color_eyre::Result<Vec<String>> {
+        if unlocked.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let total_unlocked = self.achievements.unlocked_count();
+        let start_ordinal = total_unlocked.saturating_sub(unlocked.len());
+        let mut reward_messages = Vec::with_capacity(unlocked.len());
+        let mut total_xp = 0;
+        let mut total_gold = 0;
+
+        for (idx, def) in unlocked.iter().enumerate() {
+            let ordinal = start_ordinal + idx + 1;
+            let reward_tier = ((ordinal.max(1) as f64).ln().floor() as i32 + 1).max(1);
+            let xp_reward = reward_tier * 3;
+            let gold_reward = reward_tier * 2;
+            total_xp += xp_reward;
+            total_gold += gold_reward;
+            reward_messages.push(format!(
+                "{} (+{} XP, +{} gold)",
+                def.name, xp_reward, gold_reward
+            ));
+        }
+
+        if let Some(ch) = self.active_character.as_mut() {
+            ch.gold += total_gold;
+            let level_up = ch.apply_xp_gain(total_xp);
+            db::save_character_state(&self.pool, ch).await?;
+            if level_up.levels_gained > 0 {
+                reward_messages.push(format!("Level up! Reached level {}.", ch.level));
+            }
+        } else {
+            let _ = character_id;
+        }
+
+        Ok(reward_messages)
     }
 
     pub(super) async fn refresh_meta_achievement_metrics(

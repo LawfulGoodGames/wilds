@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::app::App;
-use crate::inventory::ItemDef;
+use crate::inventory::{ItemDef, WeaponKind};
 
 pub const GOLD: Color = Color::Yellow;
 const DIM: Color = Color::Gray;
@@ -83,12 +83,110 @@ pub fn render_item_detail(def: &ItemDef) -> Vec<Line<'static>> {
             "Slot: {}",
             def.equip_slot.map(|slot| slot.label()).unwrap_or("None")
         )));
-        lines.push(Line::from(format!(
-            "Armor {}  Attack {}  Spell {}",
-            def.equipment_stats.armor,
-            def.equipment_stats.attack_bonus,
-            def.equipment_stats.spell_power
-        )));
+        lines.push(Line::from(format!("Type: {}", def.combat_role_label())));
+        lines.push(Line::from(""));
+        lines.push(Line::from("Combat impact:"));
+        let mut impact_lines = vec![];
+        if def.equipment_stats.armor != 0 {
+            impact_lines.push(format!("Armor +{}", def.equipment_stats.armor));
+        }
+        if def.equipment_stats.attack_bonus != 0 {
+            impact_lines.push(format!("Accuracy +{}", def.equipment_stats.attack_bonus));
+        }
+        if def.equipment_stats.spell_power != 0 {
+            impact_lines.push(format!("Spell power +{}", def.equipment_stats.spell_power));
+        }
+        if def.equipment_stats.crit_bonus != 0 {
+            impact_lines.push(format!("Crit +{}%", def.equipment_stats.crit_bonus));
+        }
+        if def.equipment_stats.initiative_bonus != 0 {
+            impact_lines.push(format!(
+                "Initiative +{}",
+                def.equipment_stats.initiative_bonus
+            ));
+        }
+        if def.equipment_stats.resistances.physical != 0 {
+            impact_lines.push(format!(
+                "Physical resist +{}",
+                def.equipment_stats.resistances.physical
+            ));
+        }
+        if def.equipment_stats.resistances.fire != 0 {
+            impact_lines.push(format!(
+                "Fire resist +{}",
+                def.equipment_stats.resistances.fire
+            ));
+        }
+        if def.equipment_stats.resistances.frost != 0 {
+            impact_lines.push(format!(
+                "Frost resist +{}",
+                def.equipment_stats.resistances.frost
+            ));
+        }
+        if def.equipment_stats.resistances.lightning != 0 {
+            impact_lines.push(format!(
+                "Lightning resist +{}",
+                def.equipment_stats.resistances.lightning
+            ));
+        }
+        if def.equipment_stats.resistances.poison != 0 {
+            impact_lines.push(format!(
+                "Poison resist +{}",
+                def.equipment_stats.resistances.poison
+            ));
+        }
+        if def.equipment_stats.resistances.holy != 0 {
+            impact_lines.push(format!(
+                "Holy resist +{}",
+                def.equipment_stats.resistances.holy
+            ));
+        }
+        if def.equipment_stats.resistances.shadow != 0 {
+            impact_lines.push(format!(
+                "Shadow resist +{}",
+                def.equipment_stats.resistances.shadow
+            ));
+        }
+        if impact_lines.is_empty() {
+            lines.push(Line::from("No passive stat bonuses."));
+        } else {
+            lines.extend(impact_lines.into_iter().map(Line::from));
+        }
+        if let Some(kind) = def.weapon_kind {
+            lines.push(Line::from(""));
+            lines.push(Line::from("Weapon behavior:"));
+            lines.push(Line::from(match kind {
+                WeaponKind::Melee => {
+                    "Uses melee accuracy and physical damage with free weapon swings."
+                }
+                WeaponKind::Ranged => {
+                    "Uses ranged accuracy and physical damage with free weapon shots."
+                }
+                WeaponKind::Magic => {
+                    "Uses magic accuracy, boosts spell damage, and weapon attacks spend mana."
+                }
+            }));
+        }
+        if !def.attacks.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from("Attacks:"));
+            for attack in def.attacks {
+                let cost_suffix = if matches!(def.weapon_kind, Some(WeaponKind::Magic)) {
+                    let cost = ((attack.min_damage + attack.max_damage) / 2 / 3).clamp(2, 5);
+                    format!("  Mana {cost}")
+                } else {
+                    String::new()
+                };
+                lines.push(Line::from(format!(
+                    "{}  Hit +{}  Dmg {}-{}{}",
+                    attack.name,
+                    attack.accuracy_bonus,
+                    attack.min_damage,
+                    attack.max_damage,
+                    cost_suffix
+                )));
+            }
+        }
     }
     lines
 }

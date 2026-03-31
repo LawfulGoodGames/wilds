@@ -256,23 +256,8 @@ pub fn render_inventory(app: &App, area: Rect, buf: &mut Buffer) {
     let detail = match app.inventory.selected_def() {
         None => vec![Line::from("No item selected.")],
         Some(def) => {
-            let mut lines = vec![
-                Line::from(Span::styled(
-                    def.name,
-                    Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
-                )),
-                Line::from(""),
-                Line::from(def.description),
-                Line::from(""),
-                Line::from(format!("[{} • {}]", def.kind.label(), def.rarity.label())),
-                Line::from(format!("Value: {}", def.base_value)),
-            ];
-            if def.is_equippable() {
-                lines.push(Line::from(format!(
-                    "Equip slot: {}",
-                    def.equip_slot.map(|slot| slot.label()).unwrap_or("None")
-                )));
-            }
+            let mut lines = render_item_detail(def);
+            lines.push(Line::from(""));
             if def.is_usable() {
                 lines.push(Line::from("Enter: use"));
             }
@@ -289,6 +274,7 @@ pub fn render_inventory(app: &App, area: Rect, buf: &mut Buffer) {
                 .border_type(BorderType::Rounded)
                 .style(dim_style()),
         )
+        .scroll((app.detail_scroll, 0))
         .wrap(ratatui::widgets::Wrap { trim: false })
         .render(panels[1], buf);
     if let Some(msg) = &app.inventory.last_use_message {
@@ -297,7 +283,7 @@ pub fn render_inventory(app: &App, area: Rect, buf: &mut Buffer) {
             .render(chunks[1], buf);
     }
     hint_bar(
-        "↑ ↓ choose    Enter use    Right/e equip    Esc return",
+        "↑ ↓ choose    [ ] detail    Enter use    Right/e equip    Esc return",
         chunks[2],
         buf,
     );
@@ -348,23 +334,12 @@ pub fn render_equipment(app: &App, area: Rect, buf: &mut Buffer) {
     let slot = EquipSlot::ALL[app.equipment_cursor];
     let detail = match app.equipment.get_slot(slot).and_then(find_def) {
         None => vec![Line::from(format!("{} is empty.", slot.label()))],
-        Some(def) => vec![
-            Line::from(Span::styled(
-                def.name,
-                Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from(def.description),
-            Line::from(""),
-            Line::from(format!(
-                "Armor {}  Attack {}  Spell {}",
-                def.equipment_stats.armor,
-                def.equipment_stats.attack_bonus,
-                def.equipment_stats.spell_power
-            )),
-            Line::from(""),
-            Line::from("Enter: unequip"),
-        ],
+        Some(def) => {
+            let mut lines = render_item_detail(def);
+            lines.push(Line::from(""));
+            lines.push(Line::from("Enter: unequip"));
+            lines
+        }
     };
     Paragraph::new(detail)
         .block(
@@ -373,6 +348,8 @@ pub fn render_equipment(app: &App, area: Rect, buf: &mut Buffer) {
                 .border_type(BorderType::Rounded)
                 .style(dim_style()),
         )
+        .scroll((app.detail_scroll, 0))
+        .wrap(ratatui::widgets::Wrap { trim: false })
         .render(panels[1], buf);
     Paragraph::new(Span::styled(
         app.status_message.as_deref().unwrap_or(&format!(
@@ -384,7 +361,7 @@ pub fn render_equipment(app: &App, area: Rect, buf: &mut Buffer) {
     .alignment(Alignment::Center)
     .render(chunks[1], buf);
     hint_bar(
-        "↑ ↓ choose slot    Enter unequip    Esc return",
+        "↑ ↓ choose slot    [ ] detail    Enter unequip    Esc return",
         chunks[2],
         buf,
     );
@@ -604,28 +581,33 @@ pub fn render_shop(app: &App, area: Rect, buf: &mut Buffer) {
     let inner = outer.inner(area);
     outer.render(area, buf);
     let chunks = Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(4),
         Constraint::Min(1),
         Constraint::Length(2),
     ])
     .split(inner);
-    Paragraph::new(Line::from(vec![
-        Span::styled(
-            format!(
-                "Vendor: {}  ",
-                vendor_def(VendorId::ALL[app.vendor_cursor]).name
+    let vendor_name = vendor_def(VendorId::ALL[app.vendor_cursor]).name;
+    Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("Vendor ", dim_style()),
+            Span::styled(
+                format!("({}/{}) ", app.vendor_cursor + 1, VendorId::ALL.len()),
+                Style::default().fg(Color::Cyan),
             ),
-            Style::default().fg(GOLD),
-        ),
-        Span::styled(
-            if app.shop_buy_mode { "[Buy]" } else { "[Sell]" },
-            selected_style(),
-        ),
-        Span::styled(
-            format!("  Gold {}", ch.gold),
-            Style::default().fg(Color::Cyan),
-        ),
-    ]))
+            Span::styled("← ", dim_style()),
+            Span::styled(vendor_name, Style::default().fg(GOLD)),
+            Span::styled(" →  ", dim_style()),
+            Span::styled(
+                if app.shop_buy_mode { "[Buy]" } else { "[Sell]" },
+                selected_style(),
+            ),
+            Span::styled(
+                format!("  Gold {}", ch.gold),
+                Style::default().fg(Color::Cyan),
+            ),
+        ]),
+        Line::from(Span::styled("Use Left/Right to change vendor", dim_style())),
+    ])
     .alignment(Alignment::Center)
     .render(chunks[0], buf);
     let panels = Layout::horizontal([Constraint::Percentage(42), Constraint::Percentage(58)])
@@ -711,16 +693,23 @@ pub fn render_shop(app: &App, area: Rect, buf: &mut Buffer) {
                 .border_type(BorderType::Rounded)
                 .style(dim_style()),
         )
+        .scroll((app.detail_scroll, 0))
         .wrap(ratatui::widgets::Wrap { trim: true })
         .render(panels[1], buf);
 
     if let Some(msg) = &app.status_message {
-        Paragraph::new(Span::styled(msg, Style::default().fg(Color::Green)))
-            .alignment(Alignment::Center)
-            .render(chunks[2], buf);
+        Paragraph::new(vec![
+            Line::from(Span::styled(msg, Style::default().fg(Color::Green))),
+            Line::from(Span::styled(
+                "Left/Right vendor    Tab buy/sell    Up/Down choose item    [ ] detail",
+                dim_style(),
+            )),
+        ])
+        .alignment(Alignment::Center)
+        .render(chunks[2], buf);
     } else {
         hint_bar(
-            "← → change vendor    Tab buy/sell    ↑ ↓ choose item    Enter transact    Esc return",
+            "Left/Right vendor    Tab buy/sell    Up/Down choose item    [ ] detail    Enter transact    Esc return",
             chunks[2],
             buf,
         );
