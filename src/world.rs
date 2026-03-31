@@ -197,6 +197,13 @@ pub struct VendorItem {
 }
 
 #[derive(Debug, Clone)]
+pub struct VendorStockEntry {
+    pub vendor_id: String,
+    pub item_type: String,
+    pub quantity: i32,
+}
+
+#[derive(Debug, Clone)]
 pub struct VendorDef {
     pub id: VendorId,
     pub name: &'static str,
@@ -237,6 +244,7 @@ pub struct WorldState {
     pub unlocked_areas: Vec<String>,
     pub active_quests: Vec<QuestProgress>,
     pub completed_quests: Vec<String>,
+    pub vendor_stock: Vec<VendorStockEntry>,
     pub world_flags: Vec<String>,
     pub campaign_day: i32,
     pub hour_of_day: i32,
@@ -249,6 +257,7 @@ impl Default for WorldState {
             unlocked_areas: vec![AreaId::WhisperingWoods.id().to_string()],
             active_quests: vec![],
             completed_quests: vec![],
+            vendor_stock: vec![],
             world_flags: vec![],
             campaign_day: 1,
             hour_of_day: 8,
@@ -269,6 +278,15 @@ impl WorldState {
 
     pub fn has_completed(&self, quest: QuestId) -> bool {
         self.completed_quests.iter().any(|id| id == quest.id())
+    }
+
+    pub fn prune_stale_active_quests(&mut self) {
+        self.active_quests.retain(|progress| {
+            !self
+                .completed_quests
+                .iter()
+                .any(|id| id == &progress.quest_id)
+        });
     }
 
     pub fn active_quest(&self, quest: QuestId) -> Option<&QuestProgress> {
@@ -336,6 +354,39 @@ impl WorldState {
             .iter()
             .copied()
             .find(|quest| self.can_accept_quest(*quest))
+    }
+
+    pub fn vendor_stock(&self, vendor: VendorId, item_type: &str) -> i32 {
+        self.vendor_stock
+            .iter()
+            .find(|entry| entry.vendor_id == vendor.id() && entry.item_type == item_type)
+            .map(|entry| entry.quantity)
+            .unwrap_or_else(|| default_vendor_stock(vendor, item_type))
+    }
+
+    pub fn set_vendor_stock(&mut self, vendor: VendorId, item_type: &str, quantity: i32) {
+        if let Some(entry) = self
+            .vendor_stock
+            .iter_mut()
+            .find(|entry| entry.vendor_id == vendor.id() && entry.item_type == item_type)
+        {
+            entry.quantity = quantity.max(0);
+            return;
+        }
+        self.vendor_stock.push(VendorStockEntry {
+            vendor_id: vendor.id().to_string(),
+            item_type: item_type.to_string(),
+            quantity: quantity.max(0),
+        });
+    }
+
+    pub fn decrement_vendor_stock(&mut self, vendor: VendorId, item_type: &str) -> bool {
+        let remaining = self.vendor_stock(vendor, item_type);
+        if remaining <= 0 {
+            return false;
+        }
+        self.set_vendor_stock(vendor, item_type, remaining - 1);
+        true
     }
 
     pub fn advance_time(&mut self, hours: i32) {
@@ -506,6 +557,15 @@ pub const VENDORS: &[VendorDef] = &[
         inventory: PROVISIONER_STOCK,
     },
 ];
+
+fn default_vendor_stock(vendor: VendorId, item_type: &str) -> i32 {
+    vendor_def(vendor)
+        .inventory
+        .iter()
+        .find(|entry| entry.item_type == item_type)
+        .map(|entry| entry.stock)
+        .unwrap_or(0)
+}
 
 pub const NPCS: &[NpcDef] = &[
     NpcDef {

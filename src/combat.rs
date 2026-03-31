@@ -2,6 +2,7 @@ use crate::character::{Class, MajorSkill, ResistanceProfile, ResourcePool, Saved
 use crate::inventory::{
     AttackOption, Equipment, InventoryItem, ItemEffect, LootTableEntry, WeaponKind, find_def,
 };
+use crate::settings::Difficulty;
 use rand::{Rng, RngExt};
 
 mod content;
@@ -350,11 +351,33 @@ pub struct CombatState {
 }
 
 impl CombatState {
+    fn scale_enemy_hp(base: i32, difficulty: Difficulty) -> i32 {
+        match difficulty {
+            Difficulty::Easy => ((base * 85) / 100).max(1),
+            Difficulty::Normal => base.max(1),
+            Difficulty::Hard => ((base * 115) / 100).max(1),
+        }
+    }
+
+    fn scale_enemy_stat(
+        base: i32,
+        difficulty: Difficulty,
+        easy_delta: i32,
+        hard_delta: i32,
+    ) -> i32 {
+        match difficulty {
+            Difficulty::Easy => (base + easy_delta).max(0),
+            Difficulty::Normal => base.max(0),
+            Difficulty::Hard => (base + hard_delta).max(0),
+        }
+    }
+
     pub fn from_character_and_encounter(
         character: &SavedCharacter,
         equipment: &Equipment,
         inventory: &[InventoryItem],
         encounter_id: &str,
+        difficulty: Difficulty,
     ) -> Self {
         let encounter = encounter_def(encounter_id);
         let eq_stats = equipment.total_equipment_stats();
@@ -413,18 +436,37 @@ impl CombatState {
                     family: def.family.to_string(),
                     is_player: false,
                     class: None,
-                    resources: ResourcePool::full(def.hp, def.mana, def.stamina),
-                    defense: def.defense,
+                    resources: ResourcePool::full(
+                        Self::scale_enemy_hp(def.hp, difficulty),
+                        def.mana,
+                        def.stamina,
+                    ),
+                    defense: Self::scale_enemy_stat(def.defense, difficulty, -1, 1),
                     initiative: def.initiative,
-                    attack_bonus: def.attack_bonus,
-                    ranged_attack_bonus: def.attack_bonus,
-                    magic_attack_bonus: def.attack_bonus,
-                    prayer_attack_bonus: def.attack_bonus,
-                    spell_power: def.level + if def.role == EnemyRole::Caster { 4 } else { 0 },
-                    healing_power: def.level,
+                    attack_bonus: Self::scale_enemy_stat(def.attack_bonus, difficulty, -2, 2),
+                    ranged_attack_bonus: Self::scale_enemy_stat(
+                        def.attack_bonus,
+                        difficulty,
+                        -2,
+                        2,
+                    ),
+                    magic_attack_bonus: Self::scale_enemy_stat(def.attack_bonus, difficulty, -2, 2),
+                    prayer_attack_bonus: Self::scale_enemy_stat(
+                        def.attack_bonus,
+                        difficulty,
+                        -2,
+                        2,
+                    ),
+                    spell_power: Self::scale_enemy_stat(
+                        def.level + if def.role == EnemyRole::Caster { 4 } else { 0 },
+                        difficulty,
+                        -1,
+                        1,
+                    ),
+                    healing_power: Self::scale_enemy_stat(def.level, difficulty, -1, 1),
                     strength_bonus: def.level / 2,
-                    crit_chance: 3 + def.level,
-                    dodge: 2 + def.level,
+                    crit_chance: Self::scale_enemy_stat(3 + def.level, difficulty, -1, 1),
+                    dodge: Self::scale_enemy_stat(2 + def.level, difficulty, -1, 1),
                     resistances: ResistanceProfile::default(),
                     weapon_kind: Some(def.weapon_kind),
                     weapon_attacks: vec![AttackOption {

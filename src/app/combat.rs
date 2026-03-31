@@ -27,6 +27,7 @@ impl App {
             &self.equipment,
             &self.inventory.items,
             encounter_id,
+            self.settings.difficulty,
         );
         let opening_outcome = combat.begin_encounter();
         self.combat = Some(combat);
@@ -230,6 +231,7 @@ impl App {
                 character.resources.stamina = character.resources.max_stamina;
                 db::save_character_state(&self.pool, &character).await?;
                 self.active_character = Some(character);
+                self.save_world_state_for_active_character().await?;
                 self.combat = None;
                 self.open_dialog(
                     "Defeat",
@@ -246,6 +248,7 @@ impl App {
                 }
                 db::save_character_state(&self.pool, &character).await?;
                 self.active_character = Some(character);
+                self.save_world_state_for_active_character().await?;
                 self.combat = None;
                 self.open_dialog(
                     "Retreat",

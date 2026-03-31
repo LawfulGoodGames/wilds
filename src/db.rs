@@ -5,7 +5,7 @@ use crate::character::{
     class_progression, mana_growth, stamina_growth,
 };
 use crate::inventory::{EquipSlot, Equipment, InventoryItem, find_def, gear_package_items};
-use crate::world::{QuestProgress, WorldState};
+use crate::world::{QuestProgress, VendorStockEntry, WorldState};
 use sqlx::{
     Row,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow},
@@ -406,6 +406,7 @@ pub async fn load_world_state(
         state.unlocked_areas.push("whispering_woods".to_string());
     }
     state.completed_quests = split_csv(row.get::<String, _>("completed_quests"));
+    state.vendor_stock = load_vendor_stock(pool, character_id).await?;
     state.world_flags = split_csv(row.get::<String, _>("world_flags"));
     state.campaign_day = row.get::<i64, _>("campaign_day") as i32;
     state.hour_of_day = row.get::<i64, _>("hour_of_day") as i32;
@@ -444,6 +445,11 @@ pub async fn save_world_state(
         .execute(pool)
         .await?;
 
+    sqlx::query("DELETE FROM vendor_stock WHERE character_id = ?1")
+        .bind(character_id)
+        .execute(pool)
+        .await?;
+
     for quest in &state.active_quests {
         sqlx::query(
             "INSERT INTO quests (character_id, quest_id, accepted, completed, objective_index, progress)
@@ -455,6 +461,18 @@ pub async fn save_world_state(
         .bind(i32::from(quest.completed))
         .bind(quest.objective_index as i32)
         .bind(quest.progress)
+        .execute(pool)
+        .await?;
+    }
+    for stock in &state.vendor_stock {
+        sqlx::query(
+            "INSERT INTO vendor_stock (character_id, vendor_id, item_type, quantity)
+             VALUES (?1, ?2, ?3, ?4)",
+        )
+        .bind(character_id)
+        .bind(&stock.vendor_id)
+        .bind(&stock.item_type)
+        .bind(stock.quantity)
         .execute(pool)
         .await?;
     }
@@ -479,6 +497,26 @@ pub async fn load_quests(
             completed: row.get::<i64, _>("completed") != 0,
             objective_index: row.get::<i64, _>("objective_index") as usize,
             progress: row.get::<i64, _>("progress") as i32,
+        })
+        .collect())
+}
+
+async fn load_vendor_stock(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<Vec<VendorStockEntry>> {
+    let rows = sqlx::query(
+        "SELECT vendor_id, item_type, quantity FROM vendor_stock WHERE character_id = ?1",
+    )
+    .bind(character_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| VendorStockEntry {
+            vendor_id: row.get("vendor_id"),
+            item_type: row.get("item_type"),
+            quantity: row.get::<i64, _>("quantity") as i32,
         })
         .collect())
 }

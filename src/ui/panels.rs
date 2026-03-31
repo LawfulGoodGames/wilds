@@ -798,13 +798,20 @@ pub fn render_shop(app: &App, area: Rect, buf: &mut Buffer) {
             .enumerate()
             .map(|(idx, entry)| {
                 let def = find_def(entry.item_type).unwrap();
+                let remaining = app
+                    .world_state
+                    .vendor_stock(VendorId::ALL[app.vendor_cursor], entry.item_type);
                 let style = if idx == app.shop_cursor {
                     selected_style()
                 } else {
                     normal_style()
                 };
                 Line::from(Span::styled(
-                    format!("{}  {}g", def.name, def.base_value),
+                    if remaining > 0 {
+                        format!("{}  {}g  x{}", def.name, def.base_value, remaining)
+                    } else {
+                        format!("{}  SOLD OUT", def.name)
+                    },
                     style,
                 ))
             })

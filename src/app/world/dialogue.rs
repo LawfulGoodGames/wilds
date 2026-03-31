@@ -1,6 +1,5 @@
 use super::App;
 use crate::audio;
-use crate::db;
 use crate::town_dialogue;
 use crate::world::{NpcId, QuestId, quest_def};
 
@@ -80,9 +79,7 @@ impl App {
 
         if let Some(flag) = &choice.memory_flag {
             self.world_state.set_flag(flag);
-            if let Some(ch) = &self.active_character {
-                db::save_world_state(&self.pool, ch.id, &self.world_state).await?;
-            }
+            self.save_world_state_for_active_character().await?;
         }
 
         if let Some(audio_id) = choice.audio_id {

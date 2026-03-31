@@ -191,7 +191,7 @@ impl App {
 
         db::save_character_state(&self.pool, ch).await?;
         self.world_state.advance_time(hours);
-        db::save_world_state(&self.pool, character_id, &self.world_state).await?;
+        self.save_world_state_for_active_character().await?;
 
         let mut achievement_lines = self
             .achievement_increment(character_id, "study_sessions", 1)

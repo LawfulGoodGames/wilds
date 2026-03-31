@@ -320,6 +320,14 @@ impl App {
         }
     }
 
+    async fn save_world_state_for_active_character(&self) -> color_eyre::Result<()> {
+        let Some(character_id) = self.active_character.as_ref().map(|character| character.id)
+        else {
+            return Ok(());
+        };
+        db::save_world_state(&self.pool, character_id, &self.world_state).await
+    }
+
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> color_eyre::Result<()> {
         while self.running {
             terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;

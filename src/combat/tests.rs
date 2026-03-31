@@ -7,6 +7,7 @@ use crate::character::{
     ResourcePool, SavedCharacter, Stats, proficiency_xp_for_level,
 };
 use crate::inventory::{Equipment, InventoryItem, gear_package_items};
+use crate::settings::Difficulty;
 
 fn test_character(class: Class) -> SavedCharacter {
     SavedCharacter {
@@ -105,6 +106,7 @@ fn player_can_win_combat() {
         &test_equipment(),
         &[],
         "beast_hunt",
+        Difficulty::Normal,
     );
     force_player_turn(&mut combat);
     combat.action_tab = ActionTab::Weapon;
@@ -131,6 +133,7 @@ fn abilities_apply_status() {
         &test_equipment(),
         &[],
         "beast_hunt",
+        Difficulty::Normal,
     );
     force_player_turn(&mut combat);
     combat.action_tab = ActionTab::Ability;
@@ -176,6 +179,7 @@ fn free_item_use_consumes_stack() {
             quantity: 2,
         }],
         "beast_hunt",
+        Difficulty::Normal,
     );
     force_player_turn(&mut combat);
     combat.action_tab = ActionTab::Item;
@@ -192,6 +196,7 @@ fn opening_enemy_turn_resolves_before_player_input() {
         &test_equipment(),
         &[],
         "beast_hunt",
+        Difficulty::Normal,
     );
     let enemy_first = combat
         .initiative
@@ -215,12 +220,14 @@ fn equipment_resistances_reduce_incoming_damage() {
         &Equipment::default(),
         &inventory,
         "beast_hunt",
+        Difficulty::Normal,
     );
     let armored = CombatState::from_character_and_encounter(
         &character,
         &test_equipment(),
         &inventory,
         "beast_hunt",
+        Difficulty::Normal,
     );
 
     assert!(armored.player.resistances.physical > 0);
@@ -254,6 +261,7 @@ fn spell_abilities_spend_mana() {
         &equipment_for("Arcane Kit"),
         &[],
         "beast_hunt",
+        Difficulty::Normal,
     );
     force_player_turn(&mut combat);
     combat.action_tab = ActionTab::Ability;
@@ -276,6 +284,7 @@ fn magic_weapon_attacks_spend_mana() {
         &equipment_for("Arcane Kit"),
         &[],
         "beast_hunt",
+        Difficulty::Normal,
     );
     force_player_turn(&mut combat);
     combat.action_tab = ActionTab::Weapon;
@@ -296,6 +305,7 @@ fn combat_tab_cycle_rotates_weapon_ability_item() {
         &test_equipment(),
         &[],
         "beast_hunt",
+        Difficulty::Normal,
     );
 
     assert_eq!(combat.action_tab, ActionTab::Weapon);
@@ -305,4 +315,53 @@ fn combat_tab_cycle_rotates_weapon_ability_item() {
     assert_eq!(combat.action_tab, ActionTab::Item);
     combat.cycle_tab(1);
     assert_eq!(combat.action_tab, ActionTab::Weapon);
+}
+
+#[test]
+fn difficulty_scales_enemy_snapshots_without_changing_player_snapshot() {
+    let character = test_character(Class::Warrior);
+    let equipment = test_equipment();
+    let inventory = vec![];
+
+    let easy = CombatState::from_character_and_encounter(
+        &character,
+        &equipment,
+        &inventory,
+        "beast_hunt",
+        Difficulty::Easy,
+    );
+    let normal = CombatState::from_character_and_encounter(
+        &character,
+        &equipment,
+        &inventory,
+        "beast_hunt",
+        Difficulty::Normal,
+    );
+    let hard = CombatState::from_character_and_encounter(
+        &character,
+        &equipment,
+        &inventory,
+        "beast_hunt",
+        Difficulty::Hard,
+    );
+
+    assert_eq!(easy.player.resources, normal.player.resources);
+    assert_eq!(normal.player.resources, hard.player.resources);
+    assert_eq!(easy.player.attack_bonus, normal.player.attack_bonus);
+    assert_eq!(normal.player.attack_bonus, hard.player.attack_bonus);
+    assert_eq!(easy.player.defense, normal.player.defense);
+    assert_eq!(normal.player.defense, hard.player.defense);
+
+    let easy_enemy = &easy.enemies[0];
+    let normal_enemy = &normal.enemies[0];
+    let hard_enemy = &hard.enemies[0];
+
+    assert!(easy_enemy.resources.max_hp < normal_enemy.resources.max_hp);
+    assert!(normal_enemy.resources.max_hp < hard_enemy.resources.max_hp);
+    assert!(easy_enemy.attack_bonus < normal_enemy.attack_bonus);
+    assert!(normal_enemy.attack_bonus < hard_enemy.attack_bonus);
+    assert!(easy_enemy.defense <= normal_enemy.defense);
+    assert!(normal_enemy.defense <= hard_enemy.defense);
+    assert!(easy_enemy.dodge <= normal_enemy.dodge);
+    assert!(normal_enemy.dodge <= hard_enemy.dodge);
 }

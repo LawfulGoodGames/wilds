@@ -41,7 +41,7 @@ impl App {
     }
 
     pub async fn accept_selected_quest(&mut self) -> color_eyre::Result<()> {
-        let Some(ch) = &self.active_character else {
+        let Some(_ch) = &self.active_character else {
             return Ok(());
         };
         let Some(quest_id) = self.selected_visible_quest_id() else {
@@ -62,7 +62,7 @@ impl App {
             self.status_message = Some("That quest is already active.".to_string());
             return Ok(());
         }
-        db::save_world_state(&self.pool, ch.id, &self.world_state).await?;
+        self.save_world_state_for_active_character().await?;
         self.status_message = Some(format!(
             "Accepted {}.",
             quest_def(quest_id.id()).map(|q| q.name).unwrap_or("quest")
@@ -86,9 +86,7 @@ impl App {
         if !self.world_state.accept_quest(quest_id) {
             return Ok(None);
         }
-        if let Some(ch) = &self.active_character {
-            db::save_world_state(&self.pool, ch.id, &self.world_state).await?;
-        }
+        self.save_world_state_for_active_character().await?;
         Ok(Some(format!("New quest: {}.", def.name)))
     }
 
@@ -98,6 +96,7 @@ impl App {
         reward: &CombatReward,
     ) -> color_eyre::Result<Vec<String>> {
         let mut lines = vec![];
+        self.world_state.prune_stale_active_quests();
         let active_ids = self
             .world_state
             .active_quests
@@ -108,12 +107,6 @@ impl App {
             let Some(def) = quest_def(&quest_id) else {
                 continue;
             };
-            if self.world_state.has_completed(def.id) {
-                self.world_state
-                    .active_quests
-                    .retain(|progress| progress.quest_id != def.id.id());
-                continue;
-            }
             let Some(progress) = self.world_state.active_quest_mut(def.id) else {
                 continue;
             };
@@ -197,6 +190,7 @@ impl App {
         npc: NpcId,
     ) -> color_eyre::Result<Vec<String>> {
         let mut lines = vec![];
+        self.world_state.prune_stale_active_quests();
         let active_ids = self
             .world_state
             .active_quests
@@ -207,12 +201,6 @@ impl App {
             let Some(def) = quest_def(&quest_id) else {
                 continue;
             };
-            if self.world_state.has_completed(def.id) {
-                self.world_state
-                    .active_quests
-                    .retain(|progress| progress.quest_id != def.id.id());
-                continue;
-            }
             let Some(progress) = self.world_state.active_quest_mut(def.id) else {
                 continue;
             };
@@ -230,15 +218,14 @@ impl App {
             }
         }
         lines.extend(self.apply_noncombat_quest_rewards().await?);
-        if let Some(ch) = &self.active_character {
-            db::save_world_state(&self.pool, ch.id, &self.world_state).await?;
-        }
+        self.save_world_state_for_active_character().await?;
         Ok(lines)
     }
 
     pub(super) async fn apply_noncombat_quest_rewards(
         &mut self,
     ) -> color_eyre::Result<Vec<String>> {
+        self.world_state.prune_stale_active_quests();
         let rewards = self.complete_ready_quests().await?;
         if rewards.is_empty() {
             return Ok(vec![]);
@@ -292,6 +279,7 @@ impl App {
         &mut self,
     ) -> color_eyre::Result<Vec<(i32, i32, Option<String>, i32, Vec<String>)>> {
         let mut rewards = vec![];
+        self.world_state.prune_stale_active_quests();
         let ids = self
             .world_state
             .active_quests
@@ -302,12 +290,6 @@ impl App {
             let Some(def) = quest_def(&quest_id) else {
                 continue;
             };
-            if self.world_state.has_completed(def.id) {
-                self.world_state
-                    .active_quests
-                    .retain(|progress| progress.quest_id != def.id.id());
-                continue;
-            }
             let complete_now = self
                 .world_state
                 .active_quest(def.id)

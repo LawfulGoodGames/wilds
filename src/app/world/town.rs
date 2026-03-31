@@ -21,7 +21,7 @@ impl App {
         ch.resources.stamina = ch.resources.max_stamina;
         db::save_character_state(&self.pool, ch).await?;
         self.world_state.advance_time(8);
-        db::save_world_state(&self.pool, character_id, &self.world_state).await?;
+        self.save_world_state_for_active_character().await?;
         let unlocked = self
             .achievement_increment(character_id, "rests_taken", 1)
             .await?;
@@ -58,20 +58,47 @@ impl App {
         let Some(ch) = self.active_character.as_mut() else {
             return Ok(());
         };
+        let mut has_supported_effect = false;
+        let mut has_combat_only_effect = false;
+        let mut applied_effect = false;
         for effect in def.effects {
             match effect {
                 ItemEffect::HealHp(amount) => {
-                    ch.resources.hp = (ch.resources.hp + amount).min(ch.resources.max_hp)
+                    has_supported_effect = true;
+                    let next = (ch.resources.hp + amount).min(ch.resources.max_hp);
+                    if next != ch.resources.hp {
+                        ch.resources.hp = next;
+                        applied_effect = true;
+                    }
                 }
                 ItemEffect::RestoreMana(amount) => {
-                    ch.resources.mana = (ch.resources.mana + amount).min(ch.resources.max_mana)
+                    has_supported_effect = true;
+                    let next = (ch.resources.mana + amount).min(ch.resources.max_mana);
+                    if next != ch.resources.mana {
+                        ch.resources.mana = next;
+                        applied_effect = true;
+                    }
                 }
                 ItemEffect::RestoreStamina(amount) => {
-                    ch.resources.stamina =
-                        (ch.resources.stamina + amount).min(ch.resources.max_stamina)
+                    has_supported_effect = true;
+                    let next = (ch.resources.stamina + amount).min(ch.resources.max_stamina);
+                    if next != ch.resources.stamina {
+                        ch.resources.stamina = next;
+                        applied_effect = true;
+                    }
                 }
-                ItemEffect::CurePoison | ItemEffect::ApplyGuard(_) => {}
+                ItemEffect::CurePoison | ItemEffect::ApplyGuard(_) => has_combat_only_effect = true,
             }
+        }
+        if !has_supported_effect && has_combat_only_effect {
+            self.inventory.last_use_message =
+                Some(format!("{} can only be used in combat.", def.name));
+            return Ok(());
+        }
+        if !applied_effect {
+            self.inventory.last_use_message =
+                Some(format!("{} would have no effect right now.", def.name));
+            return Ok(());
         }
         db::remove_item(&self.pool, ch.id, &item.item_type, 1).await?;
         db::save_character_state(&self.pool, ch).await?;
@@ -159,7 +186,8 @@ impl App {
         };
         let character_id = ch.id;
         if self.shop_buy_mode {
-            let vendor = vendor_def(VendorId::ALL[self.vendor_cursor]);
+            let vendor_id = VendorId::ALL[self.vendor_cursor];
+            let vendor = vendor_def(vendor_id);
             let Some(entry) = vendor.inventory.get(
                 self.shop_cursor
                     .min(vendor.inventory.len().saturating_sub(1)),
@@ -169,13 +197,26 @@ impl App {
             let Some(def) = find_def(entry.item_type) else {
                 return Ok(());
             };
+            let remaining_stock = self.world_state.vendor_stock(vendor_id, entry.item_type);
+            if remaining_stock <= 0 {
+                self.status_message = Some(format!("{} is sold out.", def.name));
+                return Ok(());
+            }
             if ch.gold < def.base_value {
                 self.status_message = Some("You do not have enough gold.".to_string());
+                return Ok(());
+            }
+            if !self
+                .world_state
+                .decrement_vendor_stock(vendor_id, entry.item_type)
+            {
+                self.status_message = Some(format!("{} is sold out.", def.name));
                 return Ok(());
             }
             ch.gold -= def.base_value;
             db::add_item(&self.pool, character_id, entry.item_type, 1).await?;
             db::save_character_state(&self.pool, ch).await?;
+            self.save_world_state_for_active_character().await?;
             self.inventory.items = db::load_inventory(&self.pool, character_id).await?;
             let unlocked = self
                 .achievement_increment(character_id, "gold_spent", def.base_value)
@@ -228,9 +269,7 @@ impl App {
             self.status_message = Some("That route is not yet safe enough to travel.".to_string());
             return Ok(());
         }
-        self.world_state.advance_time(6);
-        self.world_state.current_area = Some(area.id().to_string());
-        self.apply_area_visit(area).await?;
+        self.begin_exploration(area).await?;
 
         let area = area_def(area);
         let mut rng = rand::rng();
@@ -242,6 +281,7 @@ impl App {
                 return Ok(());
             };
             db::add_item(&self.pool, ch.id, "ration", 1).await?;
+            self.inventory.items = db::load_inventory(&self.pool, ch.id).await?;
             self.open_dialog(
                 area.name,
                 vec![
@@ -256,6 +296,14 @@ impl App {
         Ok(())
     }
 
+    pub(super) async fn begin_exploration(&mut self, area: AreaId) -> color_eyre::Result<()> {
+        self.world_state.advance_time(6);
+        self.world_state.current_area = Some(area.id().to_string());
+        self.apply_area_visit(area).await?;
+        self.save_world_state_for_active_character().await?;
+        Ok(())
+    }
+
     async fn apply_area_visit(&mut self, area: AreaId) -> color_eyre::Result<()> {
         match area {
             AreaId::WhisperingWoods => self.world_state.unlock_area(AreaId::SunkenRoad),
@@ -263,6 +311,7 @@ impl App {
             AreaId::AshenBarrow => {}
         }
 
+        self.world_state.prune_stale_active_quests();
         let active_ids = self
             .world_state
             .active_quests
