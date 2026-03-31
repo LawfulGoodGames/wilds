@@ -1,8 +1,21 @@
 use super::App;
 use crate::combat::{CombatOutcome, CombatState, PlayerAction, ability_def};
 use crate::db;
+use crate::inventory::find_def;
+use crate::world::quest_item_drop_is_relevant;
 
 impl App {
+    fn push_dialog_section(lines: &mut Vec<String>, title: &str, entries: Vec<String>) {
+        if entries.is_empty() {
+            return;
+        }
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.push(title.to_string());
+        lines.extend(entries.into_iter().map(|entry| format!("• {entry}")));
+    }
+
     pub async fn start_combat(&mut self, encounter_id: &str) -> color_eyre::Result<()> {
         let Some(ch) = &self.active_character else {
             return Ok(());
@@ -60,7 +73,7 @@ impl App {
             return Ok(());
         };
         match outcome {
-            CombatOutcome::Won(reward) => {
+            CombatOutcome::Won(mut reward) => {
                 let character_id = character.id;
                 let starting_gold = character.gold;
                 character.resources = self
@@ -68,6 +81,9 @@ impl App {
                     .as_ref()
                     .map(|combat| combat.player.resources)
                     .unwrap_or(character.resources);
+                reward
+                    .drops
+                    .retain(|(item, _)| quest_item_drop_is_relevant(&self.world_state, item));
                 character.gold += reward.gold;
                 let level_up = character.apply_xp_gain(reward.xp);
                 for (item, qty) in &reward.drops {
@@ -147,13 +163,30 @@ impl App {
                 self.open_dialog(
                     "Victory",
                     {
-                        let mut lines = vec![format!(
-                            "You win the encounter and claim {} XP and {} gold.",
-                            reward.xp, reward.gold
-                        )];
+                        let mut lines = vec![format!("You win the {}.", reward.encounter_name)];
+                        let reward_lines = {
+                            let mut section = vec![format!("{} XP", reward.xp)];
+                            section.push(format!("{} gold", reward.gold));
+                            if !reward.drops.is_empty() {
+                                section.extend(reward.drops.iter().map(|(item, qty)| {
+                                    let item_name = find_def(item)
+                                        .map(|def| def.name)
+                                        .unwrap_or(item.as_str());
+                                    if *qty == 1 {
+                                        format!("Loot: {item_name}")
+                                    } else {
+                                        format!("Loot: {item_name} x{qty}")
+                                    }
+                                }));
+                            }
+                            section
+                        };
+                        Self::push_dialog_section(&mut lines, "Rewards", reward_lines);
+
+                        let mut progression_lines = vec![];
                         if level_up.levels_gained > 0 {
-                            lines.push(format!(
-                                "Level up! Now level {}. +{} HP, +{} Mana, +{} Stamina, +{} proficiency points.",
+                            progression_lines.push(format!(
+                                "Level up to {}. +{} HP, +{} Mana, +{} Stamina, +{} proficiency points.",
                                 character.level,
                                 level_up.hp_gain,
                                 level_up.mana_gain,
@@ -172,10 +205,20 @@ impl App {
                                 })
                                 .collect::<Vec<_>>()
                                 .join(", ");
-                            lines.push(format!("New abilities unlocked: {ability_names}"));
+                            progression_lines
+                                .push(format!("New abilities unlocked: {ability_names}"));
                         }
-                        lines.extend(quest_lines);
-                        lines.extend(achievement_lines);
+                        Self::push_dialog_section(
+                            &mut lines,
+                            "Progression",
+                            progression_lines,
+                        );
+                        Self::push_dialog_section(&mut lines, "Quests", quest_lines);
+                        Self::push_dialog_section(
+                            &mut lines,
+                            "Achievements",
+                            achievement_lines,
+                        );
                         lines
                     },
                     super::Screen::Town,
