@@ -265,6 +265,8 @@ pub struct App {
     pub dialogue_npc: Option<NpcId>,
     pub dialogue_return: Screen,
     pub dialogue_audio: DialogueAudioState,
+    pub audio_wave_phase: u8,
+    pub audio_wave_tick: u8,
     pub status_message: Option<String>,
     pub achievements: AchievementState,
     pool: SqlitePool,
@@ -309,6 +311,8 @@ impl App {
             dialogue_npc: None,
             dialogue_return: Screen::Town,
             dialogue_audio: DialogueAudioState::default(),
+            audio_wave_phase: 0,
+            audio_wave_tick: 0,
             status_message: None,
             achievements: AchievementState::default(),
             pool,
@@ -337,6 +341,16 @@ impl App {
     async fn handle_tick(&mut self) -> color_eyre::Result<()> {
         if self.screen == Screen::Training {
             self.tick_training_session().await?;
+        }
+
+        if self.dialogue_audio.is_playing() {
+            self.audio_wave_tick = self.audio_wave_tick.wrapping_add(1) % 3;
+            if self.audio_wave_tick == 0 {
+                self.audio_wave_phase = self.audio_wave_phase.wrapping_add(1) % 8;
+            }
+        } else {
+            self.audio_wave_phase = 0;
+            self.audio_wave_tick = 0;
         }
 
         Ok(())

@@ -18,8 +18,8 @@ use panels::{
     render_people, render_quests, render_shop, render_town,
 };
 use shared::{
-    GOLD, dim_style, hint_bar, normal_style, progress_bar, render_centered, render_item_detail,
-    render_placeholder, render_status_bar, selected_style,
+    GOLD, dim_style, hint_bar, normal_style, progress_bar, render_audio_wave, render_centered,
+    render_item_detail, render_placeholder, render_status_bar, selected_style,
 };
 use training::render_training;
 
@@ -51,5 +51,7 @@ impl Widget for &App {
             Screen::Dialogue => render_dialogue(self, area, buf),
             Screen::Combat => render_combat(self, area, buf),
         }
+
+        render_audio_wave(self, area, buf);
     }
 }

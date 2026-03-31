@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Paragraph, Widget},
+    widgets::{Block, BorderType, Clear, Paragraph, Widget},
 };
 
 use crate::app::App;
@@ -213,6 +213,50 @@ pub fn hint_bar(text: &str, area: Rect, buf: &mut Buffer) {
         .style(dim_style())
         .alignment(Alignment::Center)
         .render(area, buf);
+}
+
+pub fn render_audio_wave(app: &App, area: Rect, buf: &mut Buffer) {
+    if !app.dialogue_audio.is_playing() || area.width < 18 || area.height < 6 {
+        return;
+    }
+
+    let width = 18;
+    let height = 5;
+    let wave_area = Rect {
+        x: area.x + area.width.saturating_sub(width + 1),
+        y: area.y + area.height.saturating_sub(height + 1),
+        width,
+        height,
+    };
+
+    let frames = [
+        "▁▃▅▇█▇▅▃",
+        "▃▅▇█▇▅▃▁",
+        "▅▇█▇▅▃▁▃",
+        "▇█▇▅▃▁▃▅",
+        "█▇▅▃▁▃▅▇",
+        "▇▅▃▁▃▅▇█",
+        "▅▃▁▃▅▇█▇",
+        "▃▁▃▅▇█▇▅",
+    ];
+    let wave = frames[app.audio_wave_phase as usize % frames.len()];
+
+    Clear.render(wave_area, buf);
+    Paragraph::new(vec![
+        Line::from(Span::styled(
+            "PLAYING",
+            Style::default().fg(GOLD).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(wave, Style::default().fg(Color::Cyan))),
+    ])
+    .alignment(Alignment::Center)
+    .block(
+        Block::bordered()
+            .title(" Audio ")
+            .border_type(BorderType::Rounded)
+            .style(Style::default().fg(Color::Cyan)),
+    )
+    .render(wave_area, buf);
 }
 
 pub fn stat_bar(filled: i32, max: i32) -> String {
