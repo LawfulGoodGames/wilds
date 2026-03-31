@@ -951,6 +951,20 @@ pub const ITEM_CATALOG: &[ItemDef] = &[
         attacks: &[],
         equipment_stats: ZERO_EQUIPMENT_STATS,
     },
+    ItemDef {
+        item_type: "cipher_scroll",
+        name: "Cipher Scroll",
+        description: "Sealed orders written in the Mage King's personal cipher, recovered from the Blighted Moor.",
+        kind: ItemKind::Quest,
+        rarity: ItemRarity::Rare,
+        base_value: 0,
+        stackable: true,
+        effects: &[],
+        equip_slot: None,
+        weapon_kind: None,
+        attacks: &[],
+        equipment_stats: ZERO_EQUIPMENT_STATS,
+    },
 ];
 
 pub fn find_def(item_type: &str) -> Option<&'static ItemDef> {

@@ -308,7 +308,8 @@ impl App {
         match area {
             AreaId::WhisperingWoods => self.world_state.unlock_area(AreaId::SunkenRoad),
             AreaId::SunkenRoad => self.world_state.unlock_area(AreaId::AshenBarrow),
-            AreaId::AshenBarrow => {}
+            AreaId::AshenBarrow => self.world_state.unlock_area(AreaId::BlightedMoor),
+            AreaId::BlightedMoor => {}
         }
 
         self.world_state.prune_stale_active_quests();
