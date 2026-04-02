@@ -111,6 +111,73 @@ async fn main_story_chain_always_has_a_next_lead_until_the_end() {
 }
 
 #[tokio::test]
+async fn each_story_quest_is_visible_and_acceptible_from_the_quest_screen() {
+    let mut app = persisted_test_app().await;
+
+    for (idx, expected) in QuestId::ALL.iter().copied().enumerate() {
+        assert_eq!(
+            app.world_state.current_story_lead(),
+            Some(expected),
+            "expected current lead to be {} at step {}",
+            expected.id(),
+            idx
+        );
+
+        let visible = app.visible_quest_ids();
+        assert!(
+            visible.contains(&expected),
+            "expected {} to be visible in the quest log at step {}",
+            expected.id(),
+            idx
+        );
+
+        app.quest_cursor = visible
+            .iter()
+            .position(|quest_id| *quest_id == expected)
+            .expect("current lead is visible");
+
+        app.accept_selected_quest()
+            .await
+            .expect("quest acceptance succeeds");
+
+        assert!(
+            app.world_state.active_quest(expected).is_some(),
+            "expected {} to become active once accepted",
+            expected.id()
+        );
+
+        let objective_count = quest_def(expected.id())
+            .expect("quest def exists")
+            .objectives
+            .len();
+        let progress = app
+            .world_state
+            .active_quest_mut(expected)
+            .expect("active quest exists");
+        progress.objective_index = objective_count;
+
+        let rewards = app
+            .complete_ready_quests()
+            .await
+            .expect("quest completion succeeds");
+        assert!(
+            !rewards.is_empty(),
+            "expected {} to complete with rewards",
+            expected.id()
+        );
+
+        if let Some(next) = QuestId::ALL.get(idx + 1).copied() {
+            assert!(
+                app.visible_quest_ids().contains(&next),
+                "expected next lead {} to be visible after completing {}",
+                next.id(),
+                expected.id()
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn same_speaker_story_handoffs_auto_accept_the_next_quest() {
     let handoffs = QuestId::ALL
         .windows(2)

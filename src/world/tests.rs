@@ -1,4 +1,15 @@
-use super::{QuestId, WorldState, quest_item_drop_is_relevant, quest_item_miss_text};
+use super::{QUESTS, QuestId, WorldState, quest_item_drop_is_relevant, quest_item_miss_text};
+
+#[test]
+fn every_defined_quest_is_listed_in_quest_id_all() {
+    let listed_ids = QuestId::ALL.iter().map(|quest| quest.id()).collect::<Vec<_>>();
+    let defined_ids = QUESTS.iter().map(|quest| quest.id.id()).collect::<Vec<_>>();
+
+    assert_eq!(
+        defined_ids, listed_ids,
+        "QUESTS and QuestId::ALL must stay in sync so progression tests cover every quest"
+    );
+}
 
 #[test]
 fn story_quests_unlock_in_order() {
