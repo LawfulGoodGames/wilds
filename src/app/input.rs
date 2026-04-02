@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::achievements;
-use crate::app::{App, CharacterTab, MenuItem, Screen, TownAction};
+use crate::app::{App, CharacterTab, LoadGameMode, MenuItem, Screen, TownAction};
 use crate::character::{Class, CreationStep, GearPackage, Race};
 use crate::combat::ActionTab;
 use crate::event::AppEvent;
@@ -53,11 +53,40 @@ impl App {
                 },
             },
             Screen::LoadGame => match key_event.code {
-                KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
-                KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
-                KeyCode::Enter => self.events.send(AppEvent::Confirm),
-                KeyCode::Esc => self.events.send(AppEvent::Back),
-                _ => {}
+                _ if self.load_mode == LoadGameMode::Renaming => match key_event.code {
+                    KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                        if self.load_name_input.len() < 24 {
+                            self.load_name_input.push(c);
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        self.load_name_input.pop();
+                    }
+                    KeyCode::Enter if !self.load_name_input.trim().is_empty() => {
+                        self.events.send(AppEvent::LoadRenameSubmit)
+                    }
+                    KeyCode::Esc => self.events.send(AppEvent::Back),
+                    _ => {}
+                },
+                _ if self.load_mode == LoadGameMode::ConfirmDelete => match key_event.code {
+                    KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                        self.events.send(AppEvent::LoadDeleteSelected)
+                    }
+                    KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                        self.events.send(AppEvent::Back)
+                    }
+                    _ => {}
+                },
+                _ => match key_event.code {
+                    KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
+                    KeyCode::Down | KeyCode::Char('j') => self.events.send(AppEvent::SelectDown),
+                    KeyCode::Enter => self.events.send(AppEvent::Confirm),
+                    KeyCode::Char('n') => self.events.send(AppEvent::LoadNewCharacter),
+                    KeyCode::Char('e') => self.events.send(AppEvent::LoadRenameStart),
+                    KeyCode::Char('d') => self.events.send(AppEvent::LoadDeleteConfirm),
+                    KeyCode::Esc => self.events.send(AppEvent::Back),
+                    _ => {}
+                },
             },
             Screen::Options => match key_event.code {
                 KeyCode::Up | KeyCode::Char('k') => self.events.send(AppEvent::SelectUp),
@@ -215,7 +244,9 @@ impl App {
         match self.screen {
             Screen::MainMenu => cycle_cursor(&mut self.selected, -1, MenuItem::ALL.len()),
             Screen::Options => cycle_cursor(&mut self.options_cursor, -1, OPTIONS_COUNT),
-            Screen::LoadGame if !self.saved_characters.is_empty() => {
+            Screen::LoadGame
+                if self.load_mode == LoadGameMode::Browse && !self.saved_characters.is_empty() =>
+            {
                 cycle_cursor(&mut self.load_cursor, -1, self.saved_characters.len())
             }
             Screen::Town => cycle_cursor(&mut self.town_cursor, -1, TownAction::ALL.len()),
@@ -275,7 +306,9 @@ impl App {
         match self.screen {
             Screen::MainMenu => cycle_cursor(&mut self.selected, 1, MenuItem::ALL.len()),
             Screen::Options => cycle_cursor(&mut self.options_cursor, 1, OPTIONS_COUNT),
-            Screen::LoadGame if !self.saved_characters.is_empty() => {
+            Screen::LoadGame
+                if self.load_mode == LoadGameMode::Browse && !self.saved_characters.is_empty() =>
+            {
                 cycle_cursor(&mut self.load_cursor, 1, self.saved_characters.len())
             }
             Screen::Town => cycle_cursor(&mut self.town_cursor, 1, TownAction::ALL.len()),

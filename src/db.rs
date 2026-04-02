@@ -120,6 +120,47 @@ pub async fn load_characters(pool: &sqlx::SqlitePool) -> color_eyre::Result<Vec<
     Ok(out)
 }
 
+pub async fn rename_character(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+    new_name: &str,
+) -> color_eyre::Result<()> {
+    sqlx::query("UPDATE characters SET name = ?1 WHERE id = ?2")
+        .bind(new_name.trim())
+        .bind(character_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn delete_character(
+    pool: &sqlx::SqlitePool,
+    character_id: i64,
+) -> color_eyre::Result<()> {
+    let mut tx = pool.begin().await?;
+    for table in [
+        "character_proficiencies",
+        "character_abilities",
+        "inventory",
+        "equipment",
+        "quests",
+        "world_state",
+        "vendor_stock",
+        "achievement_metrics",
+    ] {
+        sqlx::query(&format!("DELETE FROM {table} WHERE character_id = ?1"))
+            .bind(character_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query("DELETE FROM characters WHERE id = ?1")
+        .bind(character_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn save_character_state(
     pool: &sqlx::SqlitePool,
     character: &SavedCharacter,

@@ -67,6 +67,13 @@ pub enum Screen {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadGameMode {
+    Browse,
+    Renaming,
+    ConfirmDelete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TownAction {
     Explore,
     Rest,
@@ -238,6 +245,8 @@ pub struct App {
     pub creation: CharacterCreation,
     pub saved_characters: Vec<SavedCharacter>,
     pub load_cursor: usize,
+    pub load_mode: LoadGameMode,
+    pub load_name_input: String,
     pub active_character: Option<SavedCharacter>,
     pub world_state: WorldState,
     pub equipment: Equipment,
@@ -268,6 +277,7 @@ pub struct App {
     pub audio_wave_phase: u8,
     pub audio_wave_tick: u8,
     pub status_message: Option<String>,
+    pub creation_return_screen: Screen,
     pub achievements: AchievementState,
     pool: SqlitePool,
     pub events: EventHandler,
@@ -284,6 +294,8 @@ impl App {
             creation: CharacterCreation::default(),
             saved_characters: vec![],
             load_cursor: 0,
+            load_mode: LoadGameMode::Browse,
+            load_name_input: String::new(),
             active_character: None,
             world_state: WorldState::default(),
             equipment: Equipment::default(),
@@ -314,6 +326,7 @@ impl App {
             audio_wave_phase: 0,
             audio_wave_tick: 0,
             status_message: None,
+            creation_return_screen: Screen::MainMenu,
             achievements: AchievementState::default(),
             pool,
             events: EventHandler::new(),
@@ -370,6 +383,11 @@ impl App {
             AppEvent::SelectDown => self.select_down(),
             AppEvent::Confirm => self.confirm().await?,
             AppEvent::Back => self.go_back().await?,
+            AppEvent::LoadNewCharacter => self.open_character_creation(Screen::LoadGame),
+            AppEvent::LoadRenameStart => self.start_load_game_rename(),
+            AppEvent::LoadRenameSubmit => self.submit_load_game_rename().await?,
+            AppEvent::LoadDeleteConfirm => self.confirm_load_game_delete(),
+            AppEvent::LoadDeleteSelected => self.delete_selected_character().await?,
             AppEvent::Left => self.handle_left(),
             AppEvent::Right => self.handle_right().await?,
             AppEvent::NextTab => self.next_character_tab(),
@@ -419,12 +437,13 @@ impl App {
         match self.screen {
             Screen::MainMenu => match MenuItem::ALL[self.selected] {
                 MenuItem::NewGame => {
-                    self.creation = CharacterCreation::default();
-                    self.screen = Screen::CharacterCreation;
+                    self.open_character_creation(Screen::MainMenu);
                 }
                 MenuItem::LoadGame => {
                     self.saved_characters = db::load_characters(&self.pool).await?;
                     self.load_cursor = 0;
+                    self.load_mode = LoadGameMode::Browse;
+                    self.load_name_input.clear();
                     self.screen = Screen::LoadGame;
                 }
                 MenuItem::Options => self.screen = Screen::Options,
@@ -442,6 +461,9 @@ impl App {
                 }
             }
             Screen::LoadGame => {
+                if self.load_mode != LoadGameMode::Browse {
+                    return Ok(());
+                }
                 if let Some(character) = self.saved_characters.get(self.load_cursor) {
                     self.load_session(character.id).await?;
                     self.screen = Screen::Town;
